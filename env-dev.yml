@@ -8,11 +8,12 @@ dependencies:
 # building
 - setuptools >= 17
 - cython
-# # docs
-# - sphinx >= 3
-# - sphinx-gallery
-# - sphinxcontrib-bibtex
-# - numpydoc
+# docs
+- sphinx >= 3
+- sphinx-gallery
+- sphinxcontrib-bibtex
+- numpydoc
+- intersphinx_registry
 # - pydocstyle
 # # testing
 - seaborn   # required to import `eelbrain.testing`
@@ -20,3 +21,4 @@ dependencies:
 - pytest
 - pytest-cov
 - pytest-faulthandler
+

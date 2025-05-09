@@ -20,7 +20,7 @@ def fit_ncrf(meg, stim, lead_field, noise, tstart=0, tstop=0.5, nlevels=1,
              n_iter=10, n_iterc=10, n_iterf=100, normalize=False, in_place=False,
              mu='auto', tol=1e-3, verbose=False, n_splits=3, n_workers=None,
              use_ES=False, gaussian_fwhm=20.0, do_post_normalization=True):
-    """One shot function for cortical TRF localization
+    """One shot function for cortical TRF localization.
 
     Estimate both TRFs and source variance from the observed MEG data by solving
     the Bayesian optimization problem mentioned in the paper _[1].
@@ -31,17 +31,17 @@ def fit_ncrf(meg, stim, lead_field, noise, tstart=0, tstop=0.5, nlevels=1,
 
     Parameters
     ----------
-    meg :  NDVar ([case,] sensor, time) or list of such NDVars
+    meg :  NDVar ([case,] sensor, time) | list[NDVar]
         If multiple trials are the same length they can be specified as
-        :class:`NDVar` with case dimension, if they are different length they
+        :class:`eelbrain.NDVar` with case dimension, if they are different length they
         can be supplied as list.
-    stim : NDVar ([case, dim,] time) or (nested) list of such NDVars
+    stim : eelbrain.NDVar ([case, dim,] time) | list[NDVar]
         One or multiple predictors corresponding to each item in ``meg``.
     lead_field : NDVar
         forward solution a.k.a. lead_field matrix.
     noise : mne.Covariance | NDVar | ndarray
         The empty room noise covariance, or data from which to compute it as
-        :class:`NDVar`.
+        :class:`eelbrain.NDVar`.
     tstart : float
         Start of the TRF in seconds.
     tstop : float
@@ -63,7 +63,7 @@ def fit_ncrf(meg, stim, lead_field, noise, tstart=0, tstop=0.5, nlevels=1,
     in_place: bool
         With ``in_place=False`` (default) the original ``meg`` and ``stims`` are left untouched;
         use ``in_place=True`` to save memory by using the original ``meg`` and ``stim``.
-    mu : 'auto' | float | sequence of float
+    mu : 'auto' | float | sequence[float]
         Choice of regularizer parameters. Specify a single value to fit a model
         corresponding to that value. Alternatively, specify a range over which
         cross-validation will be done. By default (``mu='auto'``) a range of
@@ -72,13 +72,13 @@ def fit_ncrf(meg, stim, lead_field, noise, tstart=0, tstop=0.5, nlevels=1,
         Tolerance factor deciding stopping criterion for the overall algorithm. The iterations
         are stooped when ``norm(trf_new - trf_old)/norm(trf_old) < tol`` condition is met.
         By default ``tol=1e-3``.
-    verbose : boolean
+    verbose : bool
         if True prints intermediate results, by default False.
     n_splits : int
         number of cross-validation folds. By default it uses 3-fold cross-validation.
     n_workers : int (optional)
         number of workers to spawn for cross-validation. If None, it will use ``cpu_count/2``.
-    use_ES : Boolean (optional)
+    use_ES : bool (optional)
         use estimation stability criterion _[2] to choose the best ``mu``. (False, by default)
         ..[2] Lim, Chinghway, and Bin Yu. "Estimation stability with cross-validation (ESCV)."
         Journal of Computational and Graphical Statistics 25.2 (2016): 464-492.
@@ -88,7 +88,7 @@ def fit_ncrf(meg, stim, lead_field, noise, tstart=0, tstop=0.5, nlevels=1,
         fwmh as following:
         .. math::
             std = fwhm / (2 * (sqrt(2 * log(2))))
-    do_post_normalization : Boolean (optional)
+    do_post_normalization : bool (optional)
         scales covariate matrices of different predictor variables by spectral norms to
         equalize their spectral spread (=1). (True, by default)
 
