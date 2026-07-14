@@ -284,30 +284,15 @@ def fit_ncrf(
     # noise covariance
     noise_cov = _handle_noise_channels(noise, ds.sensor_dim)
 
-    # Regularizer Choice
-    if isinstance(mu, (tuple, list, np.ndarray)):
-        if len(mu) > 1:
-            mus = mu
-            do_crossvalidation = True
-        else:
-            mus = None
-            do_crossvalidation = False
-    elif isinstance(mu, float):
-        mus = None
-        do_crossvalidation = False
-    elif mu == 'auto':
-        mus = 'auto'
-        do_crossvalidation = True
-    else:
-        raise ValueError(f"invalid {mu=}, supports tuple, list, np.ndarray or scalar float optionally, may be left 'auto' if not sure")
-
     if lead_field.get_dim('sensor') != ds.sensor_dim:
         lead_field = lead_field.sub(sensor=ds.sensor_dim)
 
     estimator = NCRF(lead_field, noise_cov, n_iter=n_iter, n_iterc=n_iterc, n_iterf=n_iterf)
-    return estimator.fit(ds, mu, do_crossvalidation, tol, verbose, mus=mus, n_splits=n_splits,
-                         n_workers=n_workers, use_ES=use_ES, compute_explained_variance=True,
-                         store_theta=store_theta, store_gamma=store_gamma, store_sigma_b=store_sigma_b)
+    return estimator.fit(
+        ds, mu=mu, tol=tol, verbose=verbose, n_splits=n_splits,
+        n_workers=n_workers, use_ES=use_ES, compute_explained_variance=True,
+        store_theta=store_theta, store_gamma=store_gamma, store_sigma_b=store_sigma_b,
+    )
 
 
 def get_scaling(

@@ -14,6 +14,5 @@ IndexArray = npt.NDArray[np.int64]
 TrialData = tuple[FloatArray, FloatArray]
 ObjectiveFunction = Callable[[FloatArray], float]
 GradientFunction = Callable[[FloatArray], FloatArray]
-MuArg = float | Sequence[float] | Literal["auto"]
-MusArg = Sequence[float] | Literal["auto"] | None
+MuArg = float | Sequence[float] | FloatArray | Literal["auto"]
 StimDimensions = Categorial | Scalar | Space

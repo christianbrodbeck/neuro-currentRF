@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import logging
 from functools import cached_property
+from numbers import Real
 from operator import attrgetter
+from typing import Literal
 
 from eelbrain import NDVar, fmtxt
 import numpy as np
@@ -22,13 +24,39 @@ from ._data import RegressionData
 from ._forward import ForwardModel
 from ._reconstruction import TRFDesign
 from ._solver import FitHistory, Solver, _evaluate_objective
-from ._typing import FloatArray, MuArg, MusArg
+from ._typing import FloatArray, MuArg
 
 
 def _orientation_repr(name: str, forward: ForwardModel) -> str:
     """Shared ``repr`` for the estimator/model/result trio."""
     orientation = 'free' if forward.space else 'fixed'
     return f"<[{orientation} orientation] {name} on {forward.source!r}>"
+
+
+def _normalize_mu(mu: MuArg) -> float | tuple[float, ...] | Literal['auto']:
+    """Normalize the public ``mu`` argument into a fixed value or search grid."""
+    if isinstance(mu, str):
+        if mu == 'auto':
+            return mu
+        raise ValueError(f"{mu=}: expected a number, a sequence of numbers, or 'auto'")
+    if isinstance(mu, Real) and not isinstance(mu, bool):
+        return float(mu)
+
+    try:
+        values = tuple(mu)
+    except TypeError:
+        raise TypeError(f"{mu=}: expected a number, a sequence of numbers, or 'auto'") from None
+    if not values:
+        raise ValueError("mu grid must contain at least one value")
+    if any(isinstance(value, (bool, str, bytes)) for value in values):
+        raise TypeError(f"{mu=}: all grid values must be numbers")
+    try:
+        values = tuple(float(value) for value in values)
+    except (TypeError, ValueError):
+        raise TypeError(f"{mu=}: all grid values must be numbers") from None
+    if len(values) == 1:
+        return values[0]
+    return values
 
 
 class NCRFModel:
@@ -235,12 +263,10 @@ class NCRF:
             self,
             data: RegressionData,
             mu: MuArg = 'auto',
-            do_crossvalidation: bool = False,
             tol: float = 1e-5,
             verbose: bool = False,
             use_ES: bool = False,
-            mus: MusArg = None,
-            n_splits: int = None,
+            n_splits: int = 3,
             n_workers: int = None,
             compute_explained_variance: bool = False,
             accept_whitening: bool = False,
@@ -258,12 +284,9 @@ class NCRF:
         data
             M/EEG data and the corresponding stimulus variables. Not mutated.
         mu
-            Regularization parameter; promote sparsity and guard against over-fitting
-        do_crossvalidation
-            if True, from a wide range of regularizing parameters, the one resulting in
-            the least generalization error in a k-fold cross-validation procedure is chosen.
-            Unless specified the range and k is chosed from cofig.py. The user can also pass
-            several keyword arguments to overwrite them.
+            Regularization parameter. A scalar fits one model, a sequence selects
+            among the supplied values with cross-validation, and ``'auto'`` derives
+            and cross-validates a search grid from the data.
         tol
             tolerence parameter. Decides when to stop outer iterations.
         verbose
@@ -271,10 +294,8 @@ class NCRF:
         use_ES
             use estimation stability criterion :cite:`limEstimationStabilityCrossValidation2016`
             to choose the best ``mu`` (default ``False``).
-        mus
-            range of mu to be considered for cross-validation
         n_splits
-            k value used in k-fold cross-validation
+            Number of cross-validation folds.
         n_workers
             Number of workers to use for cross-validation.
             ``None`` to use ``cpu_count/2`` (default).
@@ -304,7 +325,11 @@ class NCRF:
             data = data.whiten(self.forward.whitening_filter)
 
         history = FitHistory(store_theta=store_theta, store_gamma=store_gamma, store_sigma_b=store_sigma_b)
-        mu, cv_results = self._select_mu(data, mu, do_crossvalidation, mus, tol, n_splits, n_workers, use_ES)
+        mu = _normalize_mu(mu)
+        if isinstance(mu, float):
+            cv_results = None
+        else:
+            mu, cv_results = select_mu(self, data, mu, tol, n_splits, n_workers, use_ES)
 
         solver = self._new_solver()
         solver.run(data, mu, tol, history, verbose)
@@ -321,29 +346,6 @@ class NCRF:
             model, explained_var=explained_var, voxelwise_explained_variance=voxelwise,
             residual=residual, history=history, cv_results=cv_results,
         )
-
-    def _select_mu(
-            self,
-            data: RegressionData,
-            mu: MuArg,
-            do_crossvalidation: bool,
-            mus: MusArg,
-            tol: float,
-            n_splits: int,
-            n_workers: int,
-            use_ES: bool,
-    ) -> tuple[float, list[CVResult] | None]:
-        """Choose the regularization parameter, running cross-validation if requested.
-
-        Returns the chosen ``mu`` and, when cross-validation was performed, the
-        list of :class:`CVResult`.
-        """
-        if not do_crossvalidation:
-            if mu is None:
-                raise TypeError(f'{mu=}: fit needs mu to be a number or "auto"')
-            return mu, None
-        return select_mu(self, data, mus, tol, n_splits, n_workers, use_ES)
-
 
 class NCRFResult:
     """Report produced by :meth:`NCRF.fit`.

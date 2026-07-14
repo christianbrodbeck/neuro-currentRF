@@ -3,12 +3,35 @@
 # Author: Proloy Das <email:proloyd94@gmail.com>
 # License: BSD (3-clause)
 import numpy as np
+import pytest
 
 from ncrf._data import covariate_from_stim
 from ncrf._linalg import gaussian_basis
+from ncrf._model import _normalize_mu
 from .fetch import load
 
 from eelbrain import Categorial, concatenate
+
+
+@pytest.mark.parametrize(
+    'mu, expected',
+    [
+        (0.1, 0.1),
+        (1, 1.0),
+        ([0.1], 0.1),
+        ((0.1, 0.2), (0.1, 0.2)),
+        (np.array([0.1, 0.2]), (0.1, 0.2)),
+        ('auto', 'auto'),
+    ],
+)
+def test_normalize_mu(mu, expected):
+    assert _normalize_mu(mu) == expected
+
+
+@pytest.mark.parametrize('mu', [[], 'invalid', [0.1, 'invalid']])
+def test_normalize_mu_invalid(mu):
+    with pytest.raises((TypeError, ValueError)):
+        _normalize_mu(mu)
 
 
 def test_gaussian_basis():
