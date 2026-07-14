@@ -285,7 +285,27 @@ def select_best_mu(cv_results: List[CVResult], criterion: str = 'cross-fit') -> 
         raise ValueError(f'criterion={criterion}')
 
 
-def select_mu(
+def _extend_mu_grid(mus: Sequence[float], best_mu: float) -> FloatArray | None:
+    """Return one additional decade when ``best_mu`` is on a grid boundary."""
+    if best_mu == min(mus):
+        return np.logspace(np.log10(best_mu) - 1, np.log10(best_mu), 4)[:-1]
+    if best_mu == max(mus):
+        return np.logspace(np.log10(best_mu), np.log10(best_mu) + 1, 4)[1:]
+    return None
+
+
+def _select_es_mu(cv_results: Sequence[CVResult], minimum_mu: float) -> float | None:
+    """Return the first ES local minimum at or above ``minimum_mu``."""
+    results = sorted(cv_results, key=attrgetter('mu'))
+    for i, result in enumerate(results[:-1]):
+        if result.mu < minimum_mu:
+            continue
+        if result.estimation_stability < results[i + 1].estimation_stability:
+            return result.mu
+    return None
+
+
+def search_mu(
         estimator: NCRF,
         data: RegressionData,
         mus: Sequence[float] | str,
@@ -307,40 +327,24 @@ def select_mu(
     logger.info('Crossvalidation initiated!')
     cv_results = crossvalidate(estimator, data, mus, tol, n_splits, n_workers)
     best_mu = select_best_mu(cv_results, 'cross-fit')
-    if best_mu == min(mus):
-        logger.info(f'CVmu is {best_mu}: extending range of mu towards left')
-        new_mus = np.logspace(np.log10(best_mu) - 1, np.log10(best_mu), 4)[:-1]
-    elif best_mu == max(mus):
-        logger.info(f'CVmu is {best_mu}: extending range of mu towards right')
-        new_mus = np.logspace(np.log10(best_mu), np.log10(best_mu) + 1, 4)[1:]
-    else:
-        new_mus = None
+    new_mus = _extend_mu_grid(mus, best_mu)
 
     if new_mus is not None:
+        direction = 'left' if new_mus[-1] < best_mu else 'right'
+        logger.info(f'CVmu is {best_mu}: extending range of mu towards {direction}')
         cv_results.extend(crossvalidate(estimator, data, new_mus, tol, n_splits, n_workers))
         best_mu = select_best_mu(cv_results, 'cross-fit')
 
     mu = best_mu
     if use_ES:
-        cv_results_ = sorted(cv_results, key=attrgetter('mu'))
         if mu == cv_results[-1].mu:
             logger.info(f'\nCVmu is {mu}: could not find mu based on estimation stability criterion\nContinuing with cross-validation only.')
         else:
-            best_es = None
-            for i, res in enumerate(cv_results_):
-                if res.mu < mu:
-                    continue
-                else:
-                    try:
-                        if res.estimation_stability < cv_results_[i + 1].estimation_stability:
-                            best_es = res
-                            break
-                    except IndexError:
-                        best_es = None
-            if best_es is None:
+            es_mu = _select_es_mu(cv_results, mu)
+            if es_mu is None:
                 logger.warning('\nNo ES minima found: could not find mu based on estimation stability criterion.\nContinuing with cross-validation only.')
             else:
-                mu = best_es.mu
+                mu = es_mu
     return mu, cv_results
 
 

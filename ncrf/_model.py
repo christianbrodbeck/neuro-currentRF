@@ -19,7 +19,7 @@ from typing import Literal
 from eelbrain import NDVar, fmtxt
 import numpy as np
 
-from ._crossvalidation import CVResult, select_best_mu, select_mu
+from ._crossvalidation import CVResult, search_mu, select_best_mu
 from ._data import RegressionData
 from ._forward import ForwardModel
 from ._reconstruction import TRFDesign
@@ -344,7 +344,7 @@ class NCRF:
         if isinstance(mu, float):
             cv_results = None
         else:
-            mu, cv_results = select_mu(self, data, mu, tol, n_splits, n_workers, use_ES)
+            mu, cv_results = search_mu(self, data, mu, tol, n_splits, n_workers, use_ES)
 
         model = self._fit_model(data, mu, tol, history, verbose)
 

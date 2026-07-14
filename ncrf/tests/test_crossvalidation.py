@@ -7,6 +7,10 @@ import numpy as np
 from ncrf import _crossvalidation as cv
 
 
+def _cv_result(mu, *, cross_fit=0.0, es=0.0):
+    return cv.CVResult(mu, 0.0, es, cross_fit, 0.0)
+
+
 def test_score_mu_uses_estimator_fit_primitive(monkeypatch):
     train_data = object()
     test_data = object()
@@ -35,3 +39,26 @@ def test_score_mu_uses_estimator_fit_primitive(monkeypatch):
     assert result.weighted_l2_error == 2.0
     assert result.l2_error == 3.0
     assert result.estimation_stability == 4.0
+
+
+def test_extend_mu_grid():
+    mus = (0.1, 0.2, 0.3)
+
+    left = cv._extend_mu_grid(mus, 0.1)
+    right = cv._extend_mu_grid(mus, 0.3)
+
+    np.testing.assert_allclose(left, np.logspace(-2, -1, 4)[:-1])
+    np.testing.assert_allclose(right, np.logspace(np.log10(0.3), np.log10(3), 4)[1:])
+    assert cv._extend_mu_grid(mus, 0.2) is None
+
+
+def test_select_es_mu():
+    results = [
+        _cv_result(0.1, es=5.0),
+        _cv_result(0.2, es=4.0),
+        _cv_result(0.3, es=2.0),
+        _cv_result(0.4, es=3.0),
+    ]
+
+    assert cv._select_es_mu(results, 0.2) == 0.3
+    assert cv._select_es_mu(results, 0.4) is None
