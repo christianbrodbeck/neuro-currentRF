@@ -117,11 +117,9 @@ def _score_mu(
 ) -> CVResult:
     """Fit and score all cross-validation folds for one regularization value.
 
-    Each fold is fit with an independent :class:`Solver` built from the
-    estimator's shared forward model, then scored on its held-out window.
+    Each fold is fit through the estimator's single-model primitive, then
+    scored on its held-out window.
     """
-    from ._model import NCRFModel, FitHistory  # deferred to avoid an import cycle
-
     d = max(basis.shape[1] for basis in data.basis)
     kf = TimeSeriesSplit(r=0.05, p=n_splits, d=d)
     models = []
@@ -131,9 +129,7 @@ def _score_mu(
     for train, test in kf.split(data.meg[0][0]):
         traindata = data.timeslice(train)
         testdata = data.timeslice(test)
-        solver = estimator._new_solver()
-        solver.run(traindata, mu, tol, FitHistory(store_objective=False, store_residual=False))
-        model = NCRFModel._from_solver(solver, data)
+        model = estimator._fit_model(traindata, mu, tol)
         models.append(model)
         obj, wl2 = model.eval_obj(testdata, True)
         weighted_l2.append(wl2)
