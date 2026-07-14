@@ -259,6 +259,21 @@ class NCRF:
     def _new_solver(self) -> Solver:
         return Solver(self.forward, self.n_iter, self.n_iterc, self.n_iterf)
 
+    def _fit_model(
+            self,
+            data: RegressionData,
+            mu: float,
+            tol: float,
+            history: FitHistory | None = None,
+            verbose: bool = False,
+    ) -> NCRFModel:
+        """Fit one model on prepared, whitened data."""
+        if history is None:
+            history = FitHistory(store_objective=False, store_residual=False)
+        solver = self._new_solver()
+        solver.run(data, mu, tol, history, verbose)
+        return NCRFModel._from_solver(solver, data)
+
     def fit(
             self,
             data: RegressionData,
@@ -331,9 +346,7 @@ class NCRF:
         else:
             mu, cv_results = select_mu(self, data, mu, tol, n_splits, n_workers, use_ES)
 
-        solver = self._new_solver()
-        solver.run(data, mu, tol, history, verbose)
-        model = NCRFModel._from_solver(solver, data)
+        model = self._fit_model(data, mu, tol, history, verbose)
 
         residual = model.eval_obj(data)
         explained_var = model.explained_variance(data)

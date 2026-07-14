@@ -2,12 +2,15 @@
 
 # Author: Proloy Das <email:proloyd94@gmail.com>
 # License: BSD (3-clause)
+from unittest.mock import Mock
+
 import numpy as np
 import pytest
 
 from ncrf._data import covariate_from_stim
 from ncrf._linalg import gaussian_basis
-from ncrf._model import _normalize_mu
+from ncrf._model import NCRF, NCRFModel, _normalize_mu
+from ncrf._solver import FitHistory
 from .fetch import load
 
 from eelbrain import Categorial, concatenate
@@ -32,6 +35,26 @@ def test_normalize_mu(mu, expected):
 def test_normalize_mu_invalid(mu):
     with pytest.raises((TypeError, ValueError)):
         _normalize_mu(mu)
+
+
+def test_fit_model(monkeypatch):
+    estimator = NCRF.__new__(NCRF)
+    solver = Mock()
+    monkeypatch.setattr(estimator, '_new_solver', lambda: solver)
+    model = object()
+    monkeypatch.setattr(NCRFModel, '_from_solver', lambda solver_, data_: model)
+    data = object()
+    history = FitHistory()
+
+    result = estimator._fit_model(data, 0.1, 1e-5, history, True)
+
+    assert result is model
+    solver.run.assert_called_once_with(data, 0.1, 1e-5, history, True)
+
+    estimator._fit_model(data, 0.2, 1e-4)
+    internal_history = solver.run.call_args.args[3]
+    assert not internal_history.store_objective
+    assert not internal_history.store_residual
 
 
 def test_gaussian_basis():
