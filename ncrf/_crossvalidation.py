@@ -12,11 +12,9 @@ from __future__ import annotations
 
 import logging
 import os
-import time
 from math import ceil
-from multiprocessing import Process, Queue
+from multiprocessing import Pool
 from operator import attrgetter
-import queue
 from typing import TYPE_CHECKING, Iterator, List, Sequence
 
 from eelbrain._config import CONFIG
@@ -31,6 +29,7 @@ if TYPE_CHECKING:
     from ._model import NCRF, NCRFModel, RegressionData
 
 FloatArray = npt.NDArray[np.float64]
+_worker_context: tuple[NCRF, RegressionData, int, float] | None = None
 
 
 def eval_l2(model: NCRFModel, data: RegressionData) -> float:
@@ -136,7 +135,6 @@ def _score_mu(
         cross_fit.append(obj)
         l2.append(eval_l2(model, testdata))
 
-    time.sleep(0.001)
     return CVResult(
         mu,
         sum(weighted_l2) / len(weighted_l2),
@@ -146,44 +144,25 @@ def _score_mu(
     )
 
 
-def naive_worker(
+def _initialize_worker(
         estimator: NCRF,
         data: RegressionData,
-        n_split: int,
+        n_splits: int,
         tol: float,
-        job_q: Queue,
-        result_q: Queue,
 ) -> None:
-    """Consume regularization values from the shared queue and score them."""
+    """Initialize one worker with the shared CV inputs."""
+    global _worker_context
     if CONFIG['nice']:
         os.nice(CONFIG['nice'])
-    while True:
-        try:
-            job = job_q.get_nowait()
-            for mu in job:
-                result_q.put(_score_mu(estimator, data, n_split, tol, mu))
-        except queue.Empty:
-            return
+    _worker_context = estimator, data, n_splits, tol
 
 
-def start_workers(
-        estimator: NCRF,
-        data: RegressionData,
-        n_split: int,
-        tol: float,
-        shared_job_q: Queue,
-        shared_result_q: Queue,
-        nprocs: int,
-) -> list[Process]:
-    """Start worker processes for the current cross-validation sweep."""
-    procs = []
-    for i in range(nprocs):
-        p = Process(
-            target=naive_worker,
-            args=(estimator, data, n_split, tol, shared_job_q, shared_result_q))
-        procs.append(p)
-        p.start()
-    return procs
+def _score_worker(mu: float) -> CVResult:
+    """Score one regularization value using the current worker's CV inputs."""
+    if _worker_context is None:
+        raise RuntimeError("cross-validation worker was not initialized")
+    estimator, data, n_splits, tol = _worker_context
+    return _score_mu(estimator, data, n_splits, tol, mu)
 
 
 def crossvalidate(
@@ -223,35 +202,25 @@ def crossvalidate(
     list
         Cross-validation results.
     """
-    prog = tqdm(total=len(mus), desc="Crossvalidation", unit='mu', unit_scale=True)
     if n_workers is None:
         n = CONFIG['n_workers'] or 1  # by default this is cpu_count()
         n_workers = ceil(n / 8)
 
     results = []
-
-    if n_workers == 0:
-        for mu in mus:
-            result = _score_mu(estimator, data, n_splits, tol, mu)
-            results.append(result)
-            prog.update(n=len(results))
-        return results
-
-    job_q = Queue()
-    result_q = Queue()
-
-    for mu in mus:
-        job_q.put([mu])  # put the job as a list.
-
-    workers = start_workers(estimator, data, n_splits, tol, job_q, result_q, n_workers)
-
-    for _ in range(len(mus)):
-        result = result_q.get()
-        results.append(result)
-        prog.update(n=len(results))
-
-    for worker in workers:
-        worker.join()
+    with tqdm(total=len(mus), desc="Crossvalidation", unit='mu', unit_scale=True) as prog:
+        if n_workers == 0:
+            for mu in mus:
+                results.append(_score_mu(estimator, data, n_splits, tol, mu))
+                prog.update()
+        else:
+            with Pool(
+                    processes=n_workers,
+                    initializer=_initialize_worker,
+                    initargs=(estimator, data, n_splits, tol),
+            ) as pool:
+                for result in pool.imap_unordered(_score_worker, mus):
+                    results.append(result)
+                    prog.update()
 
     return results
 
@@ -337,7 +306,7 @@ def search_mu(
 
     mu = best_mu
     if use_ES:
-        if mu == cv_results[-1].mu:
+        if mu == max(result.mu for result in cv_results):
             logger.info(f'\nCVmu is {mu}: could not find mu based on estimation stability criterion\nContinuing with cross-validation only.')
         else:
             es_mu = _select_es_mu(cv_results, mu)
