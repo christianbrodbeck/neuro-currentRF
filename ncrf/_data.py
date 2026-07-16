@@ -399,26 +399,37 @@ class RegressionData:
         """Per-segment ``E.T @ E`` covariate Gram matrices."""
         return [np.dot(E.T, E) for E in self.covariates]
 
-    def whiten(self, whitening_filter: FloatArray) -> RegressionData:
-        """Return a new dataset with MEG whitened.
+    def whiten(
+            self,
+            whitening_filter: FloatArray,
+            accept_whitening: bool = False,
+    ) -> RegressionData:
+        """Return a dataset with MEG whitened.
 
         Parameters
         ----------
         whitening_filter
             Whitening matrix.
+        accept_whitening
+            Return an already-whitened dataset unchanged. The caller is
+            responsible for ensuring that the right whitening filter was applied.
 
         Notes
         -----
-        Uses shallow copies of unmodified data.
+        Uses shallow copies of unmodified data. If ``accept_whitening`` is true
+        and the data is already whitened, returns this dataset unchanged.
 
         Raises
         ------
         ValueError
-            If the dataset is already whitened. Whitening twice is not equivalent
-            to whitening once with the second filter (``W₂ @ W₁ @ meg ≠ W₂ @ meg``).
+            If the dataset is already whitened and ``accept_whitening`` is false.
+            Whitening twice is not equivalent to whitening once with the second
+            filter (``W₂ @ W₁ @ meg ≠ W₂ @ meg``).
         """
         if self.is_whitened:
-            raise ValueError("Dataset is already whitened; cannot whiten twice")
+            if accept_whitening:
+                return self
+            raise ValueError("data is already whitened; pass accept_whitening=True to accept it")
         meg = [np.dot(whitening_filter, m) for m in self.meg]
         return RegressionData(
             meg, self.covariates, self.norm_factor,

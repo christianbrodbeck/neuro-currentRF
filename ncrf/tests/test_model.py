@@ -7,7 +7,7 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from ncrf._data import covariate_from_stim
+from ncrf._data import RegressionData, covariate_from_stim
 from ncrf._linalg import gaussian_basis
 from ncrf._model import NCRF, NCRFModel, _normalize_mu
 from ncrf._solver import FitHistory
@@ -55,6 +55,22 @@ def test_fit_model(monkeypatch):
     internal_history = solver.run.call_args.args[3]
     assert not internal_history.store_objective
     assert not internal_history.store_residual
+
+
+def test_whitening_guard():
+    data = RegressionData.__new__(RegressionData)
+    data.is_whitened = True
+    whitening_filter = object()
+
+    with pytest.raises(ValueError, match="pass accept_whitening=True"):
+        data.whiten(whitening_filter)
+    assert data.whiten(whitening_filter, accept_whitening=True) is data
+
+    model = NCRFModel.__new__(NCRFModel)
+    model.forward = Mock(whitening_filter=whitening_filter)
+    with pytest.raises(ValueError, match="pass accept_whitening=True"):
+        model._whiten(data)
+    assert model._whiten(data, accept_whitening=True) is data
 
 
 def test_gaussian_basis():

@@ -132,11 +132,13 @@ class NCRFModel:
     def __repr__(self) -> str:
         return _orientation_repr(self._name, self.forward)
 
-    def _whiten(self, data: RegressionData) -> RegressionData:
-        """Whiten ``data`` unless it is already whitened (no-op for fitted/CV data)."""
-        if data.is_whitened:
-            return data
-        return data.whiten(self.forward.whitening_filter)
+    def _whiten(
+            self,
+            data: RegressionData,
+            accept_whitening: bool = False,
+    ) -> RegressionData:
+        """Whiten ``data``, optionally accepting a previously whitened dataset."""
+        return data.whiten(self.forward.whitening_filter, accept_whitening=accept_whitening)
 
     def _predict_whitened(self, covariate: FloatArray) -> FloatArray:
         """Predicted whitened sensor data for one trial's covariate matrix."""
@@ -146,6 +148,8 @@ class NCRFModel:
             self,
             data: RegressionData,
             return_wl2: bool = False,
+            *,
+            accept_whitening: bool = False,
     ) -> float | tuple[float, float]:
         """Evaluate the model's objective value on a dataset.
 
@@ -155,6 +159,9 @@ class NCRFModel:
             Dataset on which to evaluate the objective.
         return_wl2
             Also return the weighted L2 term.
+        accept_whitening
+            Accept pre-whitened data. The caller is responsible for ensuring that
+            the model's whitening filter was applied.
 
         Returns
         -------
@@ -162,13 +169,22 @@ class NCRFModel:
             Objective value, or a pair containing the objective value and the
             weighted L2 term when ``return_wl2`` is true.
         """
-        data = self._whiten(data)
+        data = self._whiten(data, accept_whitening)
         return _evaluate_objective(self.forward, self.theta, self.Sigma_b, data, return_wl2)
 
-    def explained_variance(self, data: RegressionData) -> float:
-        """Compute the global explained-variance score on a dataset."""
+    def explained_variance(
+            self,
+            data: RegressionData,
+            *,
+            accept_whitening: bool = False,
+    ) -> float:
+        """Compute the global explained-variance score on a dataset.
+
+        Set ``accept_whitening=True`` only when the model's whitening filter was
+        applied to ``data``.
+        """
         logger = logging.getLogger(__name__)
-        data = self._whiten(data)
+        data = self._whiten(data, accept_whitening)
         temp = 0
         for meg, covariate in data:
             y = meg - self._predict_whitened(covariate)
@@ -177,9 +193,18 @@ class NCRFModel:
         logger.debug(f'{self.mu}: {1 - temp / len(data)}')
         return 1 - temp / len(data)
 
-    def voxelwise_explained_variance(self, data: RegressionData) -> NDVar:
-        """Compute each source's contribution to explained variance."""
-        data = self._whiten(data)
+    def voxelwise_explained_variance(
+            self,
+            data: RegressionData,
+            *,
+            accept_whitening: bool = False,
+    ) -> NDVar:
+        """Compute each source's contribution to explained variance.
+
+        Set ``accept_whitening=True`` only when the model's whitening filter was
+        applied to ``data``.
+        """
+        data = self._whiten(data, accept_whitening)
         W_leadfield = self.forward.whitened_lead_field
         temp = np.zeros(len(self.forward.source))
         for meg, covariate in data:
@@ -333,11 +358,7 @@ class NCRF:
         NCRFResult
             The fitted model and estimated cortical TRFs.
         """
-        if data.is_whitened:
-            if not accept_whitening:
-                raise ValueError("data is already whitened; pass accept_whitening=True to accept it")
-        else:
-            data = data.whiten(self.forward.whitening_filter)
+        data = data.whiten(self.forward.whitening_filter, accept_whitening=accept_whitening)
 
         history = FitHistory(store_theta=store_theta, store_gamma=store_gamma, store_sigma_b=store_sigma_b)
         mu = _normalize_mu(mu)
@@ -348,10 +369,10 @@ class NCRF:
 
         model = self._fit_model(data, mu, tol, history, verbose)
 
-        residual = model.eval_obj(data)
-        explained_var = model.explained_variance(data)
+        residual = model.eval_obj(data, accept_whitening=True)
+        explained_var = model.explained_variance(data, accept_whitening=True)
         if compute_explained_variance:
-            voxelwise = model.voxelwise_explained_variance(data)
+            voxelwise = model.voxelwise_explained_variance(data, accept_whitening=True)
         else:
             voxelwise = None
 
@@ -359,6 +380,7 @@ class NCRF:
             model, explained_var=explained_var, voxelwise_explained_variance=voxelwise,
             residual=residual, history=history, cv_results=cv_results,
         )
+
 
 class NCRFResult:
     """Report produced by :meth:`NCRF.fit`.

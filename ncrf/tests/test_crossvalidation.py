@@ -65,7 +65,7 @@ def test_score_mu_uses_estimator_fit_primitive(monkeypatch):
     result = cv._score_mu(estimator, data, n_splits=2, tol=1e-5, mu=0.1)
 
     estimator._fit_model.assert_called_once_with(train_data, 0.1, 1e-5)
-    model.eval_obj.assert_called_once_with(test_data, True)
+    model.eval_obj.assert_called_once_with(test_data, True, accept_whitening=True)
     assert result.mu == 0.1
     assert result.cross_fit == 1.0
     assert result.weighted_l2_error == 2.0

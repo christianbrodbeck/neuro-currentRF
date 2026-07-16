@@ -34,7 +34,7 @@ _worker_context: tuple[NCRF, RegressionData, int, float] | None = None
 
 def eval_l2(model: NCRFModel, data: RegressionData) -> float:
     """Unweighted L2 prediction error of a fitted model, used to score CV folds."""
-    data = model._whiten(data)
+    data = model._whiten(data, accept_whitening=True)
     l2 = 0
     for meg, covariate in data:
         y = meg - model._predict_whitened(covariate)
@@ -130,7 +130,7 @@ def _score_mu(
         testdata = data.timeslice(test)
         model = estimator._fit_model(traindata, mu, tol)
         models.append(model)
-        obj, wl2 = model.eval_obj(testdata, True)
+        obj, wl2 = model.eval_obj(testdata, True, accept_whitening=True)
         weighted_l2.append(wl2)
         cross_fit.append(obj)
         l2.append(eval_l2(model, testdata))
