@@ -212,7 +212,7 @@ class Fasta:
         self._funcValues: list[float] = []
         self.coefs_: FloatArray | None = None
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         return "<Fast adaptive shrinkage/thresholding Algorithm instance>"
 
     def learn(self, coefs_init: FloatArray, tol: float = 1e-2, verbose: bool = True) -> Fasta:
@@ -248,9 +248,8 @@ class Fasta:
         start = time.time()
         logger.debug("Iteration \t objective value \t step-size \t backtracking steps taken \t residual")
         for i in range(self.n_iter):
-            coefs_next, objective_next, sub_grad, tau, n_backtracks = _update_coefs(coefs_current, tau_current,
-                                                                                    grad_current, self.prox, self.f,
-                                                                                    self.g, self.beta, max(self._funcValues))
+            coefs_next, objective_next, sub_grad, tau, n_backtracks = _update_coefs(
+                coefs_current, tau_current, grad_current, self.prox, self.f, self.g, self.beta, max(self._funcValues))
 
             self._funcValues.append(objective_next)
 
