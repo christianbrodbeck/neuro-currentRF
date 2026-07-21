@@ -67,6 +67,12 @@ def test_ncrf():
     np.testing.assert_equal(result.model._design.stim_baseline[0], stim_baseline)
     np.testing.assert_equal(result.model._design.stim_scaling[0], (stim - stim_baseline).abs().mean())
     np.testing.assert_allclose(result.model.h.norm('time').norm('source').norm('space'), 6.601677e-10, rtol=0.001)
+    # by default, objective/residual accumulate but trajectories are not stored
+    assert len(result.history.objective) > 0
+    assert len(result.history.residual) > 0
+    assert result.history.theta == []
+    assert result.history.gamma == []
+    assert result.history.sigma_b == []
 
     # test persistence
     result_2 = pickle.loads(pickle.dumps(result, pickle.HIGHEST_PROTOCOL))
@@ -78,8 +84,8 @@ def test_ncrf():
     model_2 = pickle.loads(pickle.dumps(result.model, pickle.HIGHEST_PROTOCOL))
     assert_dataobj_equal(model_2.h, result.model.h)
 
-    # test Gaussian basis standard deviation
-    solver = ChampLasso(mu=0.0019444, n_iter=1, n_iterc=1, n_iterf=1)
+    # test Gaussian basis standard deviation; also opt-in trajectory storage, which is configured on the solver
+    solver = ChampLasso(mu=0.0019444, n_iter=1, n_iterc=1, n_iterf=1, store_theta=True, store_gamma=True, store_sigma_b=True)
     result = fit_ncrf(
         meg, stim, fwd, emptyroom, tstop=0.2, normalize='l1', solver=solver,
         basis_std=0.050,
@@ -87,6 +93,10 @@ def test_ncrf():
     assert result.solver is solver
     assert set(result.scores) == {'explained_variance', 'l2_error', 'cross_fit', 'weighted_l2_error'}
     assert result.model.basis_std == 0.050
+    assert len(result.history.theta) == 1
+    assert len(result.history.gamma) == 1
+    assert len(result.history.sigma_b) == 1
+    assert all(theta.shape == result.model.theta.shape for theta in result.history.theta)
 
     # 2 stimuli, one of them 2-d, normalize='l2'
     diff = stim.diff('time')
@@ -125,32 +135,6 @@ def test_ncrf():
     # test without multiprocessing
     result_no_mp = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, normalize='l1', mu='auto', n_iter=1, n_iterc=2, n_iterf=2, n_workers=0, do_post_normalization=False)
     assert_dataobj_equal(result_no_mp.model.h, result.model.h)
-
-
-def test_ncrf_fit_history():
-    meg = load('meg').sub(time=(0, 5))
-    stim = load('stim').sub(time=(0, 5))
-    fwd = load('fwd_sol')
-    emptyroom = load('emptyroom')
-
-    fit_kwargs = dict(tstop=0.2, normalize='l1', do_post_normalization=False)
-    solver_kwargs = dict(mu=0.0019444, n_iter=1, n_iterc=1, n_iterf=1, tol=1e-3)
-
-    # default: objective/residual accumulate, trajectories are not stored
-    result = fit_ncrf(meg, stim, fwd, emptyroom, solver=ChampLasso(**solver_kwargs), **fit_kwargs)
-    assert len(result.history.objective) == 1
-    assert len(result.history.residual) == 1
-    assert result.history.theta == []
-    assert result.history.gamma == []
-    assert result.history.sigma_b == []
-
-    # opt-in trajectory storage is configured on the solver
-    solver = ChampLasso(store_theta=True, store_gamma=True, store_sigma_b=True, **solver_kwargs)
-    result = fit_ncrf(meg, stim, fwd, emptyroom, solver=solver, **fit_kwargs)
-    assert len(result.history.theta) == 1
-    assert len(result.history.gamma) == 1
-    assert len(result.history.sigma_b) == 1
-    assert all(theta.shape == result.model.theta.shape for theta in result.history.theta)
 
 
 def test_ncrf_shifted_nonzero_lags():
