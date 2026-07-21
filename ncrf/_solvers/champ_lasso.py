@@ -89,6 +89,11 @@ class ChampLassoHistory:
             self.sigma_b.append(copy.deepcopy(sigma_b))
 
 
+def _is_number(value: object) -> bool:
+    """Whether ``value`` is a real number; ``bool`` is rejected."""
+    return isinstance(value, Real) and not isinstance(value, bool)
+
+
 def _low_rank_sqrt(Cb: FloatArray, n_times: int) -> FloatArray:
     """Factor ``yhat`` with ``yhat @ yhat.T == Cb``, from the significant eigenvalues.
 
@@ -555,33 +560,24 @@ class ChampLasso(Solver):
             data: RegressionData,
     ) -> tuple[ChampLasso, ...]:
         """Resolve ``mu`` into fixed solver configurations."""
-        if isinstance(self.mu, float):
-            return self,
-        elif isinstance(self.mu, str):
-            if self.mu == 'auto':
-                return self.auto_candidates(forward, data)
-            raise ValueError(f"mu={self.mu!r}: expected a number, a sequence of numbers, or 'auto'")
-        elif isinstance(self.mu, Real) and not isinstance(self.mu, bool):
-            return replace(self, mu=float(self.mu)),
+        mu = self.mu
+        if isinstance(mu, str):
+            if mu != 'auto':
+                raise ValueError(f"{mu=}: expected a number, a sequence of numbers, or 'auto'")
+            return self.auto_candidates(forward, data)
+        if _is_number(mu):
+            # already resolved: return self so callers can identify the solver they passed in
+            return (self,) if isinstance(mu, float) else (replace(self, mu=float(mu)),)
 
         try:
-            values = tuple(self.mu)
+            values = tuple(mu)
         except TypeError:
-            raise TypeError(
-                f"mu={self.mu!r}: expected a number, a sequence of numbers, "
-                "or 'auto'",
-            ) from None
+            raise TypeError(f"{mu=}: expected a number, a sequence of numbers, or 'auto'") from None
         if not values:
-            raise ValueError("mu grid must contain at least one value")
-        if any(isinstance(value, (bool, str, bytes)) for value in values):
-            raise TypeError(f"mu={self.mu!r}: all grid values must be numbers")
-        try:
-            values = tuple(float(value) for value in values)
-        except (TypeError, ValueError):
-            raise TypeError(
-                f"mu={self.mu!r}: all grid values must be numbers",
-            ) from None
-        return tuple(replace(self, mu=value) for value in values)
+            raise ValueError(f"{mu=}: grid must contain at least one value")
+        if not all(_is_number(value) for value in values):
+            raise TypeError(f"{mu=}: all grid values must be numbers")
+        return tuple(replace(self, mu=float(value)) for value in values)
 
     def solve(
             self,
@@ -591,7 +587,7 @@ class ChampLasso(Solver):
             verbose: bool = False,
     ) -> ChampLassoFit:
         """Estimate NCRF weights for one prepared, whitened dataset."""
-        if not isinstance(self.mu, Real) or isinstance(self.mu, bool):
+        if not _is_number(self.mu):
             raise ValueError("ChampLasso.solve() requires a fixed numeric mu; use NCRF.fit() to resolve a grid or mu='auto'")
         mu = float(self.mu)
         history = ChampLassoHistory(**{field: getattr(self, field) for field in _STORE_FIELDS})
