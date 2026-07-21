@@ -133,23 +133,23 @@ def test_ncrf_fit_history():
     fwd = load('fwd_sol')
     emptyroom = load('emptyroom')
 
-    fit_kwargs = dict(tstop=0.2, normalize='l1', mu=0.0019444, n_iter=3, n_iterc=2,
-                      n_iterf=5, do_post_normalization=False)
+    fit_kwargs = dict(tstop=0.2, normalize='l1', do_post_normalization=False)
+    solver_kwargs = dict(mu=0.0019444, n_iter=1, n_iterc=1, n_iterf=1, tol=1e-3)
 
     # default: objective/residual accumulate, trajectories are not stored
-    result = fit_ncrf(meg, stim, fwd, emptyroom, **fit_kwargs)
-    assert len(result.history.objective) >= 1
-    assert len(result.history.residual) >= 1
+    result = fit_ncrf(meg, stim, fwd, emptyroom, solver=ChampLasso(**solver_kwargs), **fit_kwargs)
+    assert len(result.history.objective) == 1
+    assert len(result.history.residual) == 1
     assert result.history.theta == []
     assert result.history.gamma == []
     assert result.history.sigma_b == []
 
-    # opt-in trajectory storage
-    result = fit_ncrf(meg, stim, fwd, emptyroom, store_theta=True, store_gamma=True,
-                      store_sigma_b=True, **fit_kwargs)
-    assert len(result.history.theta) >= 1
-    assert len(result.history.gamma) == len(result.history.theta)
-    assert len(result.history.sigma_b) == len(result.history.theta)
+    # opt-in trajectory storage is configured on the solver
+    solver = ChampLasso(store_theta=True, store_gamma=True, store_sigma_b=True, **solver_kwargs)
+    result = fit_ncrf(meg, stim, fwd, emptyroom, solver=solver, **fit_kwargs)
+    assert len(result.history.theta) == 1
+    assert len(result.history.gamma) == 1
+    assert len(result.history.sigma_b) == 1
     assert all(theta.shape == result.model.theta.shape for theta in result.history.theta)
 
 
