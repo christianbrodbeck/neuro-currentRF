@@ -55,14 +55,10 @@ def test_score_candidate_uses_estimator_fit_primitive(monkeypatch):
     splitter = Mock()
     splitter.split.return_value = [(np.array([0, 1]), np.array([2]))]
     monkeypatch.setattr(cv, 'TimeSeriesSplit', lambda **kwargs: splitter)
-    monkeypatch.setattr(
-        cv,
-        'l2_error',
-        lambda model, test, accept_whitening: 3.0,
-    )
     monkeypatch.setattr(cv, 'compute_es_metric', lambda models, full_data: 4.0)
 
     model = Mock()
+    model.evaluate.return_value = {'l2_error': 3.0}
     solver_fit = Mock()
     solver_fit.evaluate_objective.return_value = (1.0, 2.0)
     estimator = Mock()

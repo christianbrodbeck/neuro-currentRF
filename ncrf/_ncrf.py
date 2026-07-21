@@ -178,10 +178,10 @@ def fit_ncrf(
     :class:`NCRFResult`
         Fit report. The fitted, reusable model is :attr:`NCRFResult.model` (an
         :class:`NCRFModel`); the response functions are ``result.model.h`` /
-        ``result.model.h_scaled``, and explained variance for an arbitrary dataset
-        is ``result.model.explained_variance(data)``. Training-set metrics
-        (``explained_var``, ``residual``, ``voxelwise_explained_variance``),
-        ``history`` and ``cv_info()`` live on the result itself.
+        ``result.model.h_scaled``, and metrics for an arbitrary dataset are
+        ``result.model.evaluate(data)``. Training-set metrics (``scores``,
+        ``residual``, ``voxelwise_explained_variance``), ``history`` and
+        ``cv_info()`` live on the result itself.
 
     Examples
     --------

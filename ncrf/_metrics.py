@@ -1,43 +1,40 @@
-"""Solver-independent prediction metrics for fitted NCRF models."""
+"""Solver-independent prediction metrics for fitted NCRF models.
+
+Each metric maps observed and predicted whitened sensor data to a scalar. Metrics
+are pure functions of the two sequences of per-segment arrays and know nothing
+about the model that produced the predictions, so a caller can predict once and
+evaluate several metrics on the same predictions; see :meth:`NCRFModel.evaluate`.
+"""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Callable, Sequence, TypeAlias
 
 import numpy as np
 
-if TYPE_CHECKING:
-    from ._data import RegressionData
-    from ._model import NCRFModel
+from ._typing import FloatArray
+
+#: A metric maps observed and predicted per-segment arrays to a scalar.
+Metric: TypeAlias = Callable[[Sequence[FloatArray], Sequence[FloatArray]], float]
 
 
 def explained_variance(
-        model: NCRFModel,
-        data: RegressionData,
-        *,
-        accept_whitening: bool = False,
+        observed: Sequence[FloatArray],
+        predicted: Sequence[FloatArray],
 ) -> float:
     """Mean sensor-by-segment explained variance in whitened sensor space."""
-    data = model._whiten(data, accept_whitening)
     residual_ratio = 0.0
-    for meg, covariate in data:
-        residual = meg - model._predict_whitened(covariate)
-        residual_ratio += (
-            np.nansum(np.var(residual, axis=1) / np.var(meg, axis=1))
-            / residual.shape[0]
-        )
-    return 1 - residual_ratio / len(data)
+    for meg, prediction in zip(observed, predicted):
+        residual = meg - prediction
+        residual_ratio += np.nansum(np.var(residual, axis=1) / np.var(meg, axis=1)) / residual.shape[0]
+    return 1 - residual_ratio / len(observed)
 
 
 def l2_error(
-        model: NCRFModel,
-        data: RegressionData,
-        *,
-        accept_whitening: bool = False,
+        observed: Sequence[FloatArray],
+        predicted: Sequence[FloatArray],
 ) -> float:
     """Mean unweighted squared prediction error in whitened sensor space."""
-    data = model._whiten(data, accept_whitening)
     error = 0.0
-    for meg, covariate in data:
-        residual = meg - model._predict_whitened(covariate)
-        error += 0.5 * (residual ** 2).sum()
-    return error / len(data)
+    for meg, prediction in zip(observed, predicted):
+        error += 0.5 * ((meg - prediction) ** 2).sum()
+    return error / len(observed)

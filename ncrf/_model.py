@@ -11,6 +11,7 @@ and provenance.
 from __future__ import annotations
 
 from functools import cached_property
+from typing import Sequence
 
 from eelbrain import NDVar, fmtxt
 import numpy as np
@@ -19,7 +20,7 @@ from ._crossvalidation import CrossValidation, CVResult, search_param, select_be
 from ._data import RegressionData
 from ._forward import ForwardModel
 from ._reconstruction import TRFDesign
-from ._metrics import explained_variance, l2_error
+from ._metrics import Metric, explained_variance, l2_error
 from ._solvers import Solver, SolverFit
 from ._typing import FloatArray
 
@@ -100,18 +101,34 @@ class NCRFModel:
         data = self._whiten(data, accept_whitening)
         return [self._predict_whitened(covariate) for _, covariate in data]
 
-    def explained_variance(
+    def evaluate(
             self,
             data: RegressionData,
+            metrics: Sequence[Metric] = (explained_variance, l2_error),
             *,
             accept_whitening: bool = False,
-    ) -> float:
-        """Compute the global explained-variance score on a dataset.
+    ) -> dict[str, float]:
+        """Score predictions on ``data`` with one or more metrics.
 
-        Set ``accept_whitening=True`` only when the model's whitening filter was
-        applied to ``data``.
+        The data is whitened and predicted once, and every metric is evaluated on
+        those predictions.
+
+        Parameters
+        ----------
+        data
+            Dataset to predict and score.
+        metrics
+            Metric functions from :mod:`ncrf._metrics`, each mapping observed and
+            predicted per-segment arrays to a scalar. Results are keyed by
+            function name.
+        accept_whitening
+            Set to ``True`` only when the model's whitening filter was already
+            applied to ``data``.
         """
-        return explained_variance(self, data, accept_whitening=accept_whitening)
+        data = self._whiten(data, accept_whitening)
+        observed = [meg for meg, _ in data]
+        predicted = [self._predict_whitened(covariate) for _, covariate in data]
+        return {metric.__name__: metric(observed, predicted) for metric in metrics}
 
     def voxelwise_explained_variance(
             self,
@@ -129,7 +146,7 @@ class NCRFModel:
         temp = np.zeros(len(self.forward.source))
         for meg, covariate in data:
             total_var = np.var(meg, axis=1)
-            y_full = meg - np.dot(np.dot(W_leadfield, self.theta), covariate.T)
+            y_full = meg - self._predict_whitened(covariate)
             base_var = np.var(y_full, axis=1)
             for i in range(len(self.forward.source)):
                 # Zeroing source i's weights just removes its (linear) contribution
@@ -256,8 +273,7 @@ class NCRF:
 
         model, solver_fit = self._fit_model(data, solver, verbose)
         residual = solver_fit.evaluate_objective(self.forward, data)
-        explained_var = model.explained_variance(data, accept_whitening=True)
-        common_l2_error = l2_error(model, data, accept_whitening=True)
+        scores = model.evaluate(data, accept_whitening=True)
         if compute_explained_variance:
             voxelwise = model.voxelwise_explained_variance(data, accept_whitening=True)
         else:
@@ -267,11 +283,7 @@ class NCRF:
             model,
             solver=solver,
             solver_fit=solver_fit,
-            scores={
-                'explained_variance': explained_var,
-                'l2_error': common_l2_error,
-            },
-            explained_var=explained_var,
+            scores=scores,
             voxelwise_explained_variance=voxelwise,
             residual=residual,
             cv_results=cv_results,
@@ -294,10 +306,8 @@ class NCRFResult:
     solver_fit
         Solver-specific fitted state and iteration history.
     scores
-        Common prediction metrics calculated for every solver.
-    explained_var
-        Fraction of total variance explained, evaluated on the training data. For
-        an arbitrary dataset use :meth:`model.explained_variance`.
+        Common prediction metrics on the training data, keyed by metric name. For
+        an arbitrary dataset use :meth:`model.evaluate`.
     voxelwise_explained_variance
         Source-wise contributions to explained variance on the training data
         (``None`` unless requested at fit time).
@@ -316,7 +326,6 @@ class NCRFResult:
             solver: Solver,
             solver_fit: SolverFit,
             scores: dict[str, float],
-            explained_var: float,
             voxelwise_explained_variance: NDVar | None,
             residual: float | None,
             cv_results: list[CVResult] | None,
@@ -325,7 +334,6 @@ class NCRFResult:
         self.solver = solver
         self.solver_fit = solver_fit
         self.scores = scores
-        self.explained_var = explained_var
         self.voxelwise_explained_variance = voxelwise_explained_variance
         self.residual = residual
         self.history = getattr(solver_fit, 'history', None)

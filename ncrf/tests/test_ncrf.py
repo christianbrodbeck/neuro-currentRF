@@ -59,7 +59,7 @@ def test_ncrf():
     # the fitted model is a reusable NCRFModel
     assert isinstance(result.model, NCRFModel)
     # check residual and explained var
-    np.testing.assert_allclose(result.explained_var, 0.00641890144769941, rtol=0.001)
+    np.testing.assert_allclose(result.scores['explained_variance'], 0.00641890144769941, rtol=0.001)
     np.testing.assert_allclose(result.voxelwise_explained_variance.sum(), 0.004410796436808832, rtol=0.001)
     np.testing.assert_allclose(result.residual, 178.512, rtol=0.001)
     # check scaling
@@ -85,7 +85,7 @@ def test_ncrf():
         basis_std=0.050,
     )
     assert result.solver is solver
-    assert result.scores['explained_variance'] == result.explained_var
+    assert set(result.scores) == {'explained_variance', 'l2_error'}
     assert result.model.basis_std == 0.050
 
     # 2 stimuli, one of them 2-d, normalize='l2'
@@ -107,7 +107,7 @@ def test_ncrf():
                       n_iterc=3, n_iterf=10, do_post_normalization=False)
 
     # check residual and explained var
-    np.testing.assert_allclose(result.explained_var, 0.021442823238037034, rtol=0.001)
+    np.testing.assert_allclose(result.scores['explained_variance'], 0.021442823238037034, rtol=0.001)
     np.testing.assert_allclose(result.residual, 177.15021740565106, rtol=0.001)
     # check start and stop
     np.testing.assert_equal(result.model.tstart, tstart)
@@ -216,4 +216,4 @@ def test_ncrf_shifted_nonzero_lags():
     for result_shifted in (result_positive, result_negative):
         np.testing.assert_allclose(result_shifted.model.theta, result_0.model.theta)
         np.testing.assert_allclose(result_shifted.residual, result_0.residual)
-        np.testing.assert_allclose(result_shifted.explained_var, result_0.explained_var)
+        np.testing.assert_allclose(result_shifted.scores['explained_variance'], result_0.scores['explained_variance'])

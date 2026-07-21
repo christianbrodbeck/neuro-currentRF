@@ -23,8 +23,10 @@ result = problem.fit(data, solver)
 ```
 
 All solvers return a common predictive `NCRFModel`; training explained variance
-is available as `result.scores['explained_variance']`. Solver-specific state is
-available as `result.solver_fit`.
+is available as `result.scores['explained_variance']`. To score other data,
+`result.model.evaluate(data, [explained_variance, l2_error])` predicts once and
+returns all requested metrics. Solver-specific state is available as
+`result.solver_fit`.
 
 
 ## How to use:

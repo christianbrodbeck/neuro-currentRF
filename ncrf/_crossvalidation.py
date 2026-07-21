@@ -161,7 +161,7 @@ def _score_candidate(
         )
         weighted_l2.append(wl2)
         cross_fit.append(obj)
-        l2.append(l2_error(model, testdata, accept_whitening=True))
+        l2.append(model.evaluate(testdata, [l2_error], accept_whitening=True)['l2_error'])
 
     estimation_stability = compute_es_metric(models, data)
     return CVResult(

@@ -62,7 +62,6 @@ def test_fit_accepts_generic_solver(monkeypatch):
     assert result.solver is solver
     assert result.solver_fit.theta.shape == (1, 1)
     assert result.residual is None
-    assert result.explained_var == pytest.approx(0)
     assert result.scores == {
         'explained_variance': pytest.approx(0),
         'l2_error': pytest.approx(7),
