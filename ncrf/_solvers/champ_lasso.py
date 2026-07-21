@@ -94,9 +94,11 @@ def _evaluate_objective(
         theta: FloatArray,
         Sigma_b: list,
         data: RegressionData,
-        return_wl2: bool = False,
-) -> float | tuple[float, float]:
-    """Evaluate the ChampLasso objective on whitened data."""
+) -> tuple[float, float]:
+    """Evaluate the ChampLasso objective on whitened data.
+
+    Returns the objective and its weighted-L2 term.
+    """
     ll2 = 0
     logdet = 0
     for key, (meg, covariate) in enumerate(data):
@@ -124,9 +126,7 @@ def _evaluate_objective(
 
         ll2 += 0.5 * (y ** 2).sum()
         logdet += logdet_
-    if return_wl2:
-        return (ll2 + logdet) / len(data), ll2 / len(data)
-    return (ll2 + logdet) / len(data)
+    return (ll2 + logdet) / len(data), ll2 / len(data)
 
 
 class _ChampLassoState:
@@ -307,7 +307,7 @@ class _ChampLassoState:
                 break
 
             self._solve(data, theta)
-            objective = _evaluate_objective(self.forward, self.theta, self.Sigma_b, data)
+            objective, _ = _evaluate_objective(self.forward, self.theta, self.Sigma_b, data)
             history.record(objective=objective, theta=self.theta, gamma=self.Gamma, sigma_b=self.Sigma_b)
             logger.debug(f'{myname}:{i} \t {objective} \t {residual * 100}')
 
@@ -386,24 +386,13 @@ class ChampLassoFit(SolverFit):
     gamma: list
     sigma_b: list[FloatArray]
 
-    def evaluate_objective(
-            self,
-            forward: ForwardModel,
-            data: RegressionData,
-            return_weighted_l2: bool = False,
-    ) -> float | tuple[float, float]:
-        """Evaluate the ChampLasso likelihood objective on whitened data."""
-        return _evaluate_objective(
-            forward, self.theta, self.sigma_b, data, return_weighted_l2,
-        )
-
     def score(
             self,
             forward: ForwardModel,
             data: RegressionData,
     ) -> dict[str, float]:
-        """Likelihood objective on ``data`` and its weighted-L2 term."""
-        cross_fit, weighted_l2_error = self.evaluate_objective(forward, data, True)
+        """Likelihood objective on whitened ``data`` and its weighted-L2 term."""
+        cross_fit, weighted_l2_error = _evaluate_objective(forward, self.theta, self.sigma_b, data)
         return {'cross_fit': cross_fit, 'weighted_l2_error': weighted_l2_error}
 
 
