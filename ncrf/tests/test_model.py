@@ -13,18 +13,18 @@ from ncrf import CrossValidation
 from ncrf._crossvalidation import CVResult
 from ncrf._data import RegressionData, covariate_from_stim
 from ncrf._linalg import gaussian_basis
-from ncrf._model import NCRF, NCRFModel
-from ncrf._solvers import Solver, SolverFit
+from ncrf._model import NCRFEstimator, NCRF
+from ncrf._solvers import Solver, SolverResult
 from .fetch import load
 
 from eelbrain import Categorial, concatenate
 
 
 def test_fit_model():
-    estimator = NCRF.__new__(NCRF)
+    estimator = NCRFEstimator.__new__(NCRFEstimator)
     estimator.forward = object()
     solver = Mock()
-    solver_fit = SolverFit(np.empty((2, 3)))
+    solver_fit = SolverResult(np.empty((2, 3)))
     solver.solve.return_value = solver_fit
     data = Mock(trf_design=object())
 
@@ -40,11 +40,11 @@ def test_fit_model():
 @dataclass(frozen=True)
 class _ZeroSolver(Solver):
     def solve(self, forward, data, *, verbose=False):
-        return SolverFit(np.zeros((1, 1)))
+        return SolverResult(np.zeros((1, 1)))
 
 
 def test_fit_accepts_generic_solver(monkeypatch):
-    estimator = NCRF.__new__(NCRF)
+    estimator = NCRFEstimator.__new__(NCRFEstimator)
     estimator.forward = Mock(
         whitening_filter=object(),
         whitened_lead_field=np.ones((1, 1)),
@@ -107,7 +107,7 @@ def test_default_selection_contract():
 
 def test_solver_fit_score_defaults_empty():
     """Solvers without their own scores contribute nothing to the score dict."""
-    assert SolverFit(np.empty((2, 3))).score(Mock(), Mock()) == {}
+    assert SolverResult(np.empty((2, 3))).score(Mock(), Mock()) == {}
 
 
 def test_whitening_guard():
@@ -119,7 +119,7 @@ def test_whitening_guard():
         data.whiten(whitening_filter)
     assert data.whiten(whitening_filter, accept_whitening=True) is data
 
-    model = NCRFModel.__new__(NCRFModel)
+    model = NCRF.__new__(NCRF)
     model.forward = Mock(whitening_filter=whitening_filter)
     with pytest.raises(ValueError, match="pass accept_whitening=True"):
         model._whiten(data)

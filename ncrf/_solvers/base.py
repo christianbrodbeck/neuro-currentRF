@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Sequence
 
 from eelbrain import fmtxt
 
+from .._repr import _count_repr
 from .._typing import FloatArray
 
 if TYPE_CHECKING:
@@ -26,11 +27,15 @@ if TYPE_CHECKING:
     from .._forward import ForwardModel
 
 
-@dataclass(frozen=True)
-class SolverFit:
+@dataclass(frozen=True, repr=False)
+class SolverResult:
     """Result of one solver execution; concrete fits can add diagnostics."""
 
     theta: FloatArray
+
+    def __repr__(self) -> str:
+        n_components, n_basis = self.theta.shape
+        return f"<{type(self).__name__}: {_count_repr(n_components, 'source component')}, {_count_repr(n_basis, 'basis coefficient')}>"
 
     def score(
             self,
@@ -67,7 +72,7 @@ class Solver(ABC):
             data: RegressionData,
             *,
             verbose: bool = False,
-    ) -> SolverFit:
+    ) -> SolverResult:
         """Estimate source-space NCRF weights for prepared, whitened data."""
 
     def without_history(self) -> Solver:

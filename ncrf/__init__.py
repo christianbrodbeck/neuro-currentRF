@@ -7,7 +7,7 @@ coordinates input normalization and model fitting, while :class:`NCRF`,
 
 from ._data import RegressionData
 from ._crossvalidation import CrossValidation
-from ._model import NCRF, NCRFModel, NCRFResult
+from ._model import NCRFEstimator, NCRF, NCRFResult
 from ._metrics import explained_variance, l2_error
-from ._solvers import ChampLasso, Solver, SolverFit
+from ._solvers import ChampLasso, Solver, SolverResult
 from ._ncrf import fit_ncrf

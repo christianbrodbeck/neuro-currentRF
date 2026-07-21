@@ -18,6 +18,7 @@ from scipy import linalg
 
 from ._linalg import gaussian_basis
 from ._reconstruction import TRFDesign
+from ._repr import _count_repr
 from ._typing import FloatArray, IndexArray, StimDimensions, TrialData
 
 
@@ -367,7 +368,15 @@ class RegressionData:
         return len(self.meg)
 
     def __repr__(self) -> str:
-        return 'Regression data'
+        n_segments = len(self.meg)
+        if self.meg:
+            n_sensors, n_samples = self.meg[0].shape
+        else:
+            n_sensors, n_samples = len(self.sensor_dim), 0
+        n_covariates = self.covariates[0].shape[1] if self.covariates else 0
+        predictors = tuple(self.stim_names)
+        whitened = self.is_whitened
+        return f"<{type(self).__name__}: {_count_repr(n_segments, 'segment')}, {_count_repr(n_sensors, 'sensor')}, {_count_repr(n_samples, 'sample')}/segment, {_count_repr(n_covariates, 'covariate')}, {predictors=}, {whitened=}>"
 
     @property
     def trf_design(self) -> TRFDesign:

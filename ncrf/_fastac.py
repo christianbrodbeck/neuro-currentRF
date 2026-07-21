@@ -213,7 +213,10 @@ class Fasta:
         self.coefs_: FloatArray | None = None
 
     def __repr__(self) -> str:
-        return "<Fast adaptive shrinkage/thresholding Algorithm instance>"
+        beta, n_iter = self.beta, self.n_iter
+        completed_iterations = len(self.residuals)
+        fitted = self.coefs_ is not None
+        return f'<{type(self).__name__}: {beta=}, {n_iter=}, {completed_iterations=}, {fitted=}>'
 
     def learn(self, coefs_init: FloatArray, tol: float = 1e-2, verbose: bool = True) -> Fasta:
         """Fit the coefficients using the FASTA algorithm.

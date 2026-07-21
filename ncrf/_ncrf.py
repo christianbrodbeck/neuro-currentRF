@@ -20,7 +20,7 @@ import numpy as np
 
 from ._crossvalidation import CrossValidation
 from ._data import RegressionData
-from ._model import NCRF, NCRFResult
+from ._model import NCRFEstimator, NCRFResult
 from ._solvers import ChampLasso, Solver
 from ._typing import MuArg
 
@@ -285,7 +285,7 @@ def fit_ncrf(
     if lead_field.get_dim('sensor') != ds.sensor_dim:
         lead_field = lead_field.sub(sensor=ds.sensor_dim)
 
-    estimator = NCRF(lead_field, noise_cov)
+    estimator = NCRFEstimator(lead_field, noise_cov)
     if solver is None:
         solver = ChampLasso(mu=mu, n_iter=n_iter, n_iterc=n_iterc, n_iterf=n_iterf, tol=tol)
 

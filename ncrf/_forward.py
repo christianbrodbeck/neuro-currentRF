@@ -8,6 +8,7 @@ import numpy as np
 from scipy import linalg
 
 from ._linalg import _inv_sqrtm
+from ._repr import _forward_summary
 from ._typing import FloatArray
 
 
@@ -48,6 +49,9 @@ class ForwardModel:
         self.sensor = sensor
         self.space = space
         self._prewhiten()
+
+    def __repr__(self) -> str:
+        return f'<{type(self).__name__}: {_forward_summary(self)}>'
 
     @classmethod
     def from_lead_field(cls, lead_field: NDVar, noise_covariance: FloatArray) -> ForwardModel:

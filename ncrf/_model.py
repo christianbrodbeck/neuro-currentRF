@@ -21,17 +21,12 @@ from ._data import RegressionData
 from ._forward import ForwardModel
 from ._reconstruction import TRFDesign
 from ._metrics import Metric, explained_variance, l2_error
-from ._solvers import Solver, SolverFit
+from ._repr import _count_repr, _forward_summary
+from ._solvers import Solver, SolverResult
 from ._typing import FloatArray
 
 
-def _orientation_repr(name: str, forward: ForwardModel) -> str:
-    """Shared ``repr`` for the estimator/model/result trio."""
-    orientation = 'free' if forward.space else 'fixed'
-    return f"<[{orientation} orientation] {name} on {forward.source!r}>"
-
-
-class NCRFModel:
+class NCRF:
     """Frozen, fitted NCRF model that can be applied to arbitrary datasets.
 
     Holds the estimated weights together with the forward model and stimulus
@@ -48,8 +43,6 @@ class NCRFModel:
     tstart, tstep, tstop, basis_std
         TRF timing and Gaussian-basis width.
     """
-    _name = 'cTRFs estimator'
-
     def __init__(
             self,
             forward: ForwardModel,
@@ -77,7 +70,9 @@ class NCRFModel:
         return self._design.basis_std
 
     def __repr__(self) -> str:
-        return _orientation_repr(self._name, self.forward)
+        n_basis = self.theta.shape[1]
+        predictors = tuple(self._design.stim_names)
+        return f"<{type(self).__name__}: {_forward_summary(self.forward)}, {_count_repr(n_basis, 'basis coefficient')}, {predictors=}>"
 
     def _whiten(
             self,
@@ -169,8 +164,8 @@ class NCRFModel:
         return self._design.reconstruct(self.theta, self.forward)
 
 
-class NCRF:
-    """Estimator for neuro-current response functions (cTRFs).
+class NCRFEstimator:
+    """Estimator for neuro-current response functions (NCRFs).
 
     Construct with a forward model and noise covariance, then call :meth:`fit`
     with a :class:`RegressionData` instance to obtain an :class:`NCRFResult`.
@@ -193,8 +188,6 @@ class NCRF:
     2. Initialize :class:`NCRF` with the lead field and noise covariance.
     3. Call :meth:`NCRF.fit` with the data and a configured :class:`Solver`.
     """
-    _name = 'cTRFs estimator'
-
     def __init__(
             self,
             lead_field: NDVar,
@@ -203,17 +196,17 @@ class NCRF:
         self.forward = ForwardModel.from_lead_field(lead_field, noise_covariance)
 
     def __repr__(self) -> str:
-        return _orientation_repr(self._name, self.forward)
+        return f'<{type(self).__name__}: {_forward_summary(self.forward)}>'
 
     def _fit_model(
             self,
             data: RegressionData,
             solver: Solver,
             verbose: bool = False,
-    ) -> tuple[NCRFModel, SolverFit]:
+    ) -> tuple[NCRF, SolverResult]:
         """Fit one solver configuration on prepared, whitened data."""
         solver_fit = solver.solve(self.forward, data, verbose=verbose)
-        model = NCRFModel(
+        model = NCRF(
             forward=self.forward,
             theta=solver_fit.theta,
             design=data.trf_design,
@@ -318,14 +311,12 @@ class NCRFResult:
     history
         Solver-specific per-iteration history, when available.
     """
-    _name = 'cTRFs estimator'
-
     def __init__(
             self,
-            model: NCRFModel,
+            model: NCRF,
             *,
             solver: Solver,
-            solver_fit: SolverFit,
+            solver_fit: SolverResult,
             scores: dict[str, float],
             voxelwise_explained_variance: NDVar | None,
             cv_results: list[CVResult] | None,
@@ -339,7 +330,11 @@ class NCRFResult:
         self._cv_results = cv_results
 
     def __repr__(self) -> str:
-        return _orientation_repr(self._name, self.model.forward)
+        forward = self.model.forward
+        solver = type(self.solver).__name__
+        scores = self.scores
+        voxelwise = self.voxelwise_explained_variance is not None
+        return f'<{type(self).__name__}: {_forward_summary(forward)}, solver={solver}, {scores=}, {voxelwise=}>'
 
     def cv_info(self) -> fmtxt.Table:
         """Summarize stored cross-validation scores in a table."""

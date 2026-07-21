@@ -25,7 +25,7 @@ from ._data import RegressionData
 from ._typing import FloatArray
 
 if TYPE_CHECKING:
-    from ._model import NCRF, NCRFModel
+    from ._model import NCRFEstimator, NCRF
     from ._solvers import Solver
 
 _worker_context: tuple[Callable, tuple] | None = None
@@ -65,7 +65,7 @@ def _score_worker(value: object) -> object:
     return score(*args, value)
 
 
-def compute_es_metric(models: Sequence[NCRFModel], data: RegressionData) -> float:
+def compute_es_metric(models: Sequence[NCRF], data: RegressionData) -> float:
     """Compute the estimation-stability metric across cross-validation folds.
 
     Details can be found at:
@@ -117,7 +117,7 @@ class CVResult:
 
 
 def _score_candidate(
-        estimator: NCRF,
+        estimator: NCRFEstimator,
         data: RegressionData,
         n_splits: int,
         solver: Solver,
@@ -150,7 +150,7 @@ def _score_candidate(
 
 
 def crossvalidate(
-        estimator: NCRF,
+        estimator: NCRFEstimator,
         data: RegressionData,
         candidates: Sequence[Solver],
         n_splits: int,
@@ -206,7 +206,7 @@ def crossvalidate(
 
 
 def select_solver(
-        estimator: NCRF,
+        estimator: NCRFEstimator,
         data: RegressionData,
         candidates: Sequence[Solver],
         cv: CrossValidation,
@@ -235,6 +235,10 @@ class TimeSeriesSplit:
         self.ratio = r
         self.p = p
         self.d = d
+
+    def __repr__(self) -> str:
+        r, p, d = self.ratio, self.p, self.d
+        return f'{type(self).__name__}({r=}, {p=}, {d=})'
 
     def _iter_part_masks(self, X: Sequence[object] | FloatArray) -> Iterator[tuple[np.ndarray, np.ndarray]]:
         """Yield boolean masks for each backward-moving validation split."""

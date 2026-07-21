@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from ._forward import ForwardModel
 
 
-@dataclass
+@dataclass(repr=False)
 class TRFDesign:
     """Stimulus and basis metadata needed to reconstruct response functions.
 
@@ -55,6 +55,13 @@ class TRFDesign:
     stim_names: list[str]
     stim_baseline: Sequence[NDVar | float] | None
     stim_scaling: Sequence[NDVar | float] | None
+
+    def __repr__(self) -> str:
+        predictors = tuple(self.stim_names)
+        basis_counts = tuple(basis.shape[1] for basis in self.basis)
+        lags = tuple(zip(self.tstart, self.tstop))
+        tstep, basis_std = self.tstep, self.basis_std
+        return f'<{type(self).__name__}: {predictors=}, {basis_counts=}, {lags=}, {tstep=}, {basis_std=}>'
 
     def reconstruct(self, theta: FloatArray, forward: ForwardModel) -> NDVar | list[NDVar]:
         """Expand Gabor coefficients into spatio-temporal response-function NDVars."""

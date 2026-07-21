@@ -27,8 +27,9 @@ from .._forward import ForwardModel
 from .._initialization import mne_initialization
 from .._linalg import _inv_sqrtm, compute_gamma
 from .._penalties import g, g_group, proxg_group_opt, shrink
+from .._repr import _count_repr
 from .._typing import _R_tol, FloatArray, GradientFunction, MuArg, ObjectiveFunction
-from .base import Solver, SolverFit
+from .base import Solver, SolverResult
 
 if TYPE_CHECKING:
     from .._crossvalidation import CrossValidation, CVResult
@@ -37,7 +38,7 @@ if TYPE_CHECKING:
 _STORE_FIELDS = ('store_objective', 'store_residual', 'store_theta', 'store_gamma', 'store_sigma_b')
 
 
-@dataclass
+@dataclass(repr=False)
 class ChampLassoHistory:
     """Per-iteration quantities accumulated during fitting.
 
@@ -66,6 +67,12 @@ class ChampLassoHistory:
     theta: list[FloatArray] = field(default_factory=list)
     gamma: list = field(default_factory=list)
     sigma_b: list = field(default_factory=list)
+
+    def __repr__(self) -> str:
+        quantities = (self.objective, self.residual, self.theta, self.gamma, self.sigma_b)
+        n_iterations = max(map(len, quantities), default=0)
+        stored = tuple(name.removeprefix('store_') for name in _STORE_FIELDS if getattr(self, name))
+        return f'<{type(self).__name__}: {_count_repr(n_iterations, "iteration")}, {stored=}>'
 
     def record(
             self,
@@ -175,6 +182,15 @@ class _ChampLassoState:
         self.theta: FloatArray | None = None
         self.Gamma: list | None = None
         self.Sigma_b: list[FloatArray] | None = None
+
+    def __repr__(self) -> str:
+        n_iter, n_iterc, n_iterf = self.n_iter, self.n_iterc, self.n_iterf
+        initialized = self.theta is not None
+        details = f'{n_iter=}, {n_iterc=}, {n_iterf=}, {initialized=}'
+        if initialized:
+            n_components, n_basis = self.theta.shape
+            details += f", {_count_repr(n_components, 'source component')}, {_count_repr(n_basis, 'basis coefficient')}"
+        return f'<{type(self).__name__}: {details}>'
 
     def _initialize(self, data: RegressionData) -> None:
         """Seed the working state with a minimum-norm estimate."""
@@ -389,13 +405,19 @@ class _ChampLassoState:
             return sqrt(num.sum() / den.sum())
 
 
-@dataclass(frozen=True)
-class ChampLassoFit(SolverFit):
+@dataclass(frozen=True, repr=False)
+class ChampLassoResult(SolverResult):
     """Fitted state produced by :class:`ChampLasso`."""
 
     history: ChampLassoHistory
     gamma: list
     sigma_b: list[FloatArray]
+
+    def __repr__(self) -> str:
+        n_components, n_basis = self.theta.shape
+        quantities = (self.history.objective, self.history.residual, self.history.theta, self.history.gamma, self.history.sigma_b)
+        n_iterations = max(map(len, quantities), default=0)
+        return f"<{type(self).__name__}: {_count_repr(n_components, 'source component')}, {_count_repr(n_basis, 'basis coefficient')}, {_count_repr(n_iterations, 'iteration')}, {_count_repr(len(self.sigma_b), 'segment')}>"
 
     def score(
             self,
@@ -585,7 +607,7 @@ class ChampLasso(Solver):
             data: RegressionData,
             *,
             verbose: bool = False,
-    ) -> ChampLassoFit:
+    ) -> ChampLassoResult:
         """Estimate NCRF weights for one prepared, whitened dataset."""
         if not _is_number(self.mu):
             raise ValueError("ChampLasso.solve() requires a fixed numeric mu; use NCRF.fit() to resolve a grid or mu='auto'")
@@ -593,7 +615,7 @@ class ChampLasso(Solver):
         history = ChampLassoHistory(**{field: getattr(self, field) for field in _STORE_FIELDS})
         state = _ChampLassoState(forward, self.n_iter, self.n_iterc, self.n_iterf)
         state.run(data, mu, self.tol, history, verbose)
-        return ChampLassoFit(
+        return ChampLassoResult(
             theta=state.theta,
             history=history,
             gamma=state.Gamma,

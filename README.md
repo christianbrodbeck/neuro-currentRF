@@ -15,11 +15,11 @@ The optimization algorithm is configurable independently of the forward model.
 For a prepared `RegressionData` dataset, the lower-level API is:
 
 ```python
-from ncrf import ChampLasso, NCRF
+from ncrf import ChampLasso, NCRFEstimator
 
-problem = NCRF(lead_field, noise_covariance)
+estimator = NCRFEstimator(lead_field, noise_covariance)
 solver = ChampLasso(mu='auto', n_iter=30, n_iterc=10, n_iterf=100)
-result = problem.fit(data, solver)
+result = estimator.fit(data, solver)
 ```
 
 All solvers return a common predictive `NCRFModel`; training explained variance

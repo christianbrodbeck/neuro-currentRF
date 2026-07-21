@@ -8,7 +8,7 @@ from eelbrain import set_time, set_tmin
 import numpy as np
 import pytest
 
-from ncrf import ChampLasso, fit_ncrf, NCRFModel
+from ncrf import ChampLasso, fit_ncrf, NCRF
 from ncrf.tests.fetch import load
 
 from eelbrain import Categorial, concatenate
@@ -58,7 +58,7 @@ def test_ncrf():
     result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, normalize='l1', mu=0.0019444, n_iter=3, n_iterc=3,
                       n_iterf=10, do_post_normalization=False)
     # the fitted model is a reusable NCRFModel
-    assert isinstance(result.model, NCRFModel)
+    assert isinstance(result.model, NCRF)
     # check residual and explained var
     np.testing.assert_allclose(result.scores['explained_variance'], 0.00641890144769941, rtol=0.001)
     np.testing.assert_allclose(result.voxelwise_explained_variance.sum(), 0.004410796436808832, rtol=0.001)
