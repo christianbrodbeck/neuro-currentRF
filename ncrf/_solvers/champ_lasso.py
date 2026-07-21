@@ -89,6 +89,39 @@ class ChampLassoHistory:
             self.sigma_b.append(copy.deepcopy(sigma_b))
 
 
+def _low_rank_sqrt(Cb: FloatArray, n_times: int) -> FloatArray:
+    """Factor ``yhat`` with ``yhat @ yhat.T == Cb``, from the significant eigenvalues.
+
+    Parameters
+    ----------
+    Cb
+        Empirical data covariance, generally rank-deficient.
+    n_times
+        Number of samples the covariance was estimated from, which bounds its rank.
+    """
+    n_sensors = Cb.shape[0]
+    lo = max(n_sensors - n_times, 0)
+    e, v = linalg.eigh(Cb, subset_by_index=(lo, n_sensors - 1))
+    indices = e > e[-1] * _R_tol
+    return v[:, indices] * np.sqrt(e[indices])
+
+
+def _whiten_by_sigma_b(
+        sigma_b: FloatArray,
+        *arrays: FloatArray,
+) -> tuple[list[FloatArray], float]:
+    """Whiten ``arrays`` by ``sigma_b``, falling back to its pseudo-inverse square root.
+
+    Returns the whitened arrays along with ``log(det(sigma_b)) / 2``.
+    """
+    try:
+        Lc = linalg.cholesky(sigma_b, lower=True)
+        return [linalg.solve(Lc, array) for array in arrays], np.log(np.diag(Lc)).sum()
+    except np.linalg.LinAlgError:
+        Lc, e = _inv_sqrtm(sigma_b, return_eig=True)
+        return [np.dot(Lc, array) for array in arrays], -np.log(e).sum()
+
+
 def _evaluate_objective(
         forward: ForwardModel,
         theta: FloatArray,
@@ -107,23 +140,9 @@ def _evaluate_objective(
         try:
             yhat = linalg.cholesky(Cb, lower=True)
         except np.linalg.LinAlgError:
-            hi = y.shape[0] - 1
-            lo = max(y.shape[0] - y.shape[1], 0)
-            e, v = linalg.eigh(Cb, subset_by_index=(lo, hi))
-            tol = e[-1] * _R_tol
-            indices = e > tol
-            yhat = v[:, indices] * np.sqrt(e[indices])
+            yhat = _low_rank_sqrt(Cb, y.shape[1])
 
-        sigma_b = Sigma_b[key]
-        try:
-            Lc = linalg.cholesky(sigma_b, lower=True)
-            y = linalg.solve(Lc, yhat)
-            logdet_ = np.log(np.diag(Lc)).sum()
-        except np.linalg.LinAlgError:
-            Lc, e = _inv_sqrtm(sigma_b, return_eig=True)
-            y = np.dot(Lc, yhat)
-            logdet_ = -np.log(e).sum()
-
+        (y,), logdet_ = _whiten_by_sigma_b(Sigma_b[key], yhat)
         ll2 += 0.5 * (y ** 2).sum()
         logdet += logdet_
     return (ll2 + logdet) / len(data), ll2 / len(data)
@@ -208,13 +227,7 @@ class _ChampLassoState:
             start = time.time()
             y = meg - np.dot(np.dot(self.forward.whitened_lead_field, theta), covariates.T)
             Cb = np.dot(y, y.T)  # empirical data covariance
-
-            hi = y.shape[0] - 1
-            lo = max(y.shape[0] - y.shape[1], 0)
-            e, v = linalg.eigh(Cb, subset_by_index=(lo, hi))
-            tol = e[-1] * _R_tol
-            indices = e > tol
-            yhat = v[:, indices] * np.sqrt(e[indices])[None, :]
+            yhat = _low_rank_sqrt(Cb, y.shape[1])
 
             gamma = copy.deepcopy(self._init_gamma[key])
             sigma_b = self._init_sigma_b[key].copy()
@@ -222,14 +235,7 @@ class _ChampLassoState:
             # champagne iterations
             for it in range(n_iterc):
                 # pre-compute some useful matrices
-                try:
-                    Lc = linalg.cholesky(sigma_b, lower=True)
-                    lhat = linalg.solve(Lc, self.forward.whitened_lead_field)
-                    ytilde = linalg.solve(Lc, yhat)
-                except np.linalg.LinAlgError:
-                    Lc = _inv_sqrtm(sigma_b)
-                    lhat = np.dot(Lc, self.forward.whitened_lead_field)
-                    ytilde = np.dot(Lc, yhat)
+                (lhat, ytilde), _ = _whiten_by_sigma_b(sigma_b, self.forward.whitened_lead_field, yhat)
 
                 # compute sigma_b for the next iteration
                 sigma_b[:] = self.forward.whitened_noise_covariance[:]
