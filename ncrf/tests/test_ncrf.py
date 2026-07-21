@@ -61,7 +61,7 @@ def test_ncrf():
     # check residual and explained var
     np.testing.assert_allclose(result.scores['explained_variance'], 0.00641890144769941, rtol=0.001)
     np.testing.assert_allclose(result.voxelwise_explained_variance.sum(), 0.004410796436808832, rtol=0.001)
-    np.testing.assert_allclose(result.residual, 178.512, rtol=0.001)
+    np.testing.assert_allclose(result.scores['cross_fit'], 178.512, rtol=0.001)
     # check scaling
     stim_baseline = stim.mean()
     np.testing.assert_equal(result.model._design.stim_baseline[0], stim_baseline)
@@ -72,7 +72,7 @@ def test_ncrf():
     result_2 = pickle.loads(pickle.dumps(result, pickle.HIGHEST_PROTOCOL))
     assert_dataobj_equal(result_2.model.h, result.model.h)
     assert_dataobj_equal(result_2.model.h_scaled, result.model.h_scaled)
-    np.testing.assert_equal(result_2.residual, result.residual)
+    np.testing.assert_equal(result_2.scores['cross_fit'], result.scores['cross_fit'])
     np.testing.assert_equal(result_2.model.basis_std, result.model.basis_std)
     # the model alone round-trips and reproduces h
     model_2 = pickle.loads(pickle.dumps(result.model, pickle.HIGHEST_PROTOCOL))
@@ -85,7 +85,7 @@ def test_ncrf():
         basis_std=0.050,
     )
     assert result.solver is solver
-    assert set(result.scores) == {'explained_variance', 'l2_error'}
+    assert set(result.scores) == {'explained_variance', 'l2_error', 'cross_fit', 'weighted_l2_error'}
     assert result.model.basis_std == 0.050
 
     # 2 stimuli, one of them 2-d, normalize='l2'
@@ -108,7 +108,7 @@ def test_ncrf():
 
     # check residual and explained var
     np.testing.assert_allclose(result.scores['explained_variance'], 0.021442823238037034, rtol=0.001)
-    np.testing.assert_allclose(result.residual, 177.15021740565106, rtol=0.001)
+    np.testing.assert_allclose(result.scores['cross_fit'], 177.15021740565106, rtol=0.001)
     # check start and stop
     np.testing.assert_equal(result.model.tstart, tstart)
     np.testing.assert_equal(result.model.tstop, tstop)
@@ -215,5 +215,5 @@ def test_ncrf_shifted_nonzero_lags():
     assert np.linalg.norm(result_0.model.theta) > 0
     for result_shifted in (result_positive, result_negative):
         np.testing.assert_allclose(result_shifted.model.theta, result_0.model.theta)
-        np.testing.assert_allclose(result_shifted.residual, result_0.residual)
+        np.testing.assert_allclose(result_shifted.scores['cross_fit'], result_0.scores['cross_fit'])
         np.testing.assert_allclose(result_shifted.scores['explained_variance'], result_0.scores['explained_variance'])

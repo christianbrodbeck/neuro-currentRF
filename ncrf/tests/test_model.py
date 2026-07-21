@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from ncrf import CrossValidation
+from ncrf._crossvalidation import CVResult
 from ncrf._data import RegressionData, covariate_from_stim
 from ncrf._linalg import gaussian_basis
 from ncrf._model import NCRF, NCRFModel
@@ -61,7 +62,6 @@ def test_fit_accepts_generic_solver(monkeypatch):
 
     assert result.solver is solver
     assert result.solver_fit.theta.shape == (1, 1)
-    assert result.residual is None
     assert result.scores == {
         'explained_variance': pytest.approx(0),
         'l2_error': pytest.approx(7),
@@ -75,7 +75,7 @@ def test_fit_accepts_generic_solver(monkeypatch):
     selected_solver = _ZeroSolver()
     cv_results = [Mock()]
     select = Mock(return_value=(selected_solver, cv_results))
-    monkeypatch.setattr('ncrf._model.search_mu', select)
+    monkeypatch.setattr('ncrf._model.select_solver', select)
     cv = CrossValidation(n_splits=4, n_workers=0)
 
     result = estimator.fit(data, grid_solver, cv=cv)
@@ -83,6 +83,31 @@ def test_fit_accepts_generic_solver(monkeypatch):
     select.assert_called_once_with(estimator, data, candidates, cv)
     assert result.solver is selected_solver
     assert result._cv_results is cv_results
+
+
+def test_default_selection_contract():
+    """A solver implementing only solve() gets working selection defaults."""
+    solver = _ZeroSolver()
+    worse = _ZeroSolver()
+    better = _ZeroSolver()
+    cv_results = [
+        CVResult(worse, {'l2_error': 3.0, 'explained_variance': 0.1, 'estimation_stability': 1.0}),
+        CVResult(better, {'l2_error': 1.0, 'explained_variance': 0.4, 'estimation_stability': 2.0}),
+    ]
+
+    assert solver.criterion == 'l2_error'
+    assert solver.without_history() is solver
+    assert solver.candidates(None, None) == (solver,)
+    # no extra passes, and the generic criterion picks the smallest l2_error
+    assert solver.refine((worse, better), better) == ()
+    assert solver.select(cv_results, CrossValidation()) is better
+    # a generic table renders from whatever score keys are present
+    assert 'l2_error' in str(solver.cv_table(cv_results, better))
+
+
+def test_solver_fit_score_defaults_empty():
+    """Solvers without their own scores contribute nothing to the score dict."""
+    assert SolverFit(np.empty((2, 3))).score(Mock(), Mock()) == {}
 
 
 def test_whitening_guard():

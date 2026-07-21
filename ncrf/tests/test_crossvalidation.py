@@ -7,10 +7,16 @@ import pytest
 
 from ncrf import ChampLasso
 from ncrf import _crossvalidation as cv
+from ncrf._solvers import champ_lasso
 
 
-def _cv_result(mu, *, cross_fit=0.0, es=0.0):
-    return cv.CVResult(ChampLasso(mu=mu), 0.0, es, cross_fit, 0.0)
+def _cv_result(mu, *, cross_fit=0.0, es=0.0, l2_error=0.0):
+    return cv.CVResult(ChampLasso(mu=mu), {
+        'cross_fit': cross_fit,
+        'estimation_stability': es,
+        'l2_error': l2_error,
+        'weighted_l2_error': 0.0,
+    })
 
 
 class _Progress:
@@ -58,9 +64,9 @@ def test_score_candidate_uses_estimator_fit_primitive(monkeypatch):
     monkeypatch.setattr(cv, 'compute_es_metric', lambda models, full_data: 4.0)
 
     model = Mock()
-    model.evaluate.return_value = {'l2_error': 3.0}
+    model.evaluate.return_value = {'l2_error': 3.0, 'explained_variance': 0.5}
     solver_fit = Mock()
-    solver_fit.evaluate_objective.return_value = (1.0, 2.0)
+    solver_fit.score.return_value = {'cross_fit': 1.0, 'weighted_l2_error': 2.0}
     estimator = Mock()
     solver = ChampLasso(mu=0.1, tol=1e-5)
     estimator._fit_model.return_value = model, solver_fit
@@ -76,25 +82,27 @@ def test_score_candidate_uses_estimator_fit_primitive(monkeypatch):
     assert not fold_solver.store_gamma
     assert not fold_solver.store_sigma_b
     estimator._fit_model.assert_called_once_with(train_data, fold_solver)
-    solver_fit.evaluate_objective.assert_called_once_with(
-        estimator.forward, test_data, True,
-    )
+    model.evaluate.assert_called_once_with(test_data, accept_whitening=True)
+    solver_fit.score.assert_called_once_with(estimator.forward, test_data)
     assert result.solver is solver
-    assert result.cross_fit == 1.0
-    assert result.weighted_l2_error == 2.0
-    assert result.l2_error == 3.0
-    assert result.estimation_stability == 4.0
+    assert result.scores == {
+        'cross_fit': 1.0,
+        'weighted_l2_error': 2.0,
+        'l2_error': 3.0,
+        'explained_variance': 0.5,
+        'estimation_stability': 4.0,
+    }
 
 
-def test_extend_mu_grid():
+def test_refine_mu_grid():
     candidates = tuple(ChampLasso(mu=mu) for mu in (0.1, 0.2, 0.3))
 
-    left = cv._extend_mu_grid(candidates, candidates[0])
-    right = cv._extend_mu_grid(candidates, candidates[-1])
+    left = candidates[0].refine(candidates, candidates[0])
+    right = candidates[0].refine(candidates, candidates[-1])
 
     np.testing.assert_allclose([solver.mu for solver in left], np.logspace(-2, -1, 4)[:-1])
     np.testing.assert_allclose([solver.mu for solver in right], np.logspace(np.log10(0.3), np.log10(3), 4)[1:])
-    assert cv._extend_mu_grid(candidates, candidates[1]) == ()
+    assert candidates[0].refine(candidates, candidates[1]) == ()
 
 
 def test_select_es_solver():
@@ -105,8 +113,8 @@ def test_select_es_solver():
         _cv_result(0.4, es=3.0),
     ]
 
-    assert cv._select_es_solver(results, 0.2).mu == 0.3
-    assert cv._select_es_solver(results, 0.4) is None
+    assert champ_lasso._select_es_solver(results, 0.2).mu == 0.3
+    assert champ_lasso._select_es_solver(results, 0.4) is None
 
 
 def test_crossvalidate_progress(monkeypatch):
@@ -149,22 +157,22 @@ def test_crossvalidate_propagates_worker_error(monkeypatch):
     assert progress.closed
 
 
-def test_search_mu_es_is_independent_of_result_order(monkeypatch):
+def test_select_solver_es_is_independent_of_result_order(monkeypatch):
     candidates = tuple(ChampLasso(mu=mu) for mu in (0.1, 0.2, 0.3, 0.4))
     results = [
-        cv.CVResult(candidates[0], 0.0, 5.0, 3.0, 0.0),
-        cv.CVResult(candidates[2], 0.0, 2.0, 2.0, 0.0),
-        cv.CVResult(candidates[3], 0.0, 3.0, 4.0, 0.0),
-        cv.CVResult(candidates[1], 0.0, 4.0, 1.0, 0.0),
+        _cv_result(0.1, es=5.0, cross_fit=3.0),
+        _cv_result(0.3, es=2.0, cross_fit=2.0),
+        _cv_result(0.4, es=3.0, cross_fit=4.0),
+        _cv_result(0.2, es=4.0, cross_fit=1.0),
     ]
     monkeypatch.setattr(cv, 'crossvalidate', lambda *args, **kwargs: results.copy())
 
-    solver, returned_results = cv.search_param(
+    solver, returned_results = cv.select_solver(
         object(),
         object(),
         candidates,
         cv.CrossValidation(n_splits=2, n_workers=0, use_es=True),
     )
 
-    assert solver is candidates[2]
+    assert solver.mu == candidates[2].mu
     assert returned_results == results

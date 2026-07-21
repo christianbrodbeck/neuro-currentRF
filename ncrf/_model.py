@@ -16,7 +16,7 @@ from typing import Sequence
 from eelbrain import NDVar, fmtxt
 import numpy as np
 
-from ._crossvalidation import CrossValidation, CVResult, search_param, select_best_solver
+from ._crossvalidation import CrossValidation, CVResult, select_solver
 from ._data import RegressionData
 from ._forward import ForwardModel
 from ._reconstruction import TRFDesign
@@ -269,11 +269,13 @@ class NCRF:
         else:
             if cv is None:
                 cv = CrossValidation()
-            solver, cv_results = search_param(self, data, candidates, cv)
+            solver, cv_results = select_solver(self, data, candidates, cv)
 
         model, solver_fit = self._fit_model(data, solver, verbose)
-        residual = solver_fit.evaluate_objective(self.forward, data)
-        scores = model.evaluate(data, accept_whitening=True)
+        scores = {
+            **model.evaluate(data, accept_whitening=True),
+            **solver_fit.score(self.forward, data),
+        }
         if compute_explained_variance:
             voxelwise = model.voxelwise_explained_variance(data, accept_whitening=True)
         else:
@@ -285,7 +287,6 @@ class NCRF:
             solver_fit=solver_fit,
             scores=scores,
             voxelwise_explained_variance=voxelwise,
-            residual=residual,
             cv_results=cv_results,
         )
 
@@ -306,14 +307,14 @@ class NCRFResult:
     solver_fit
         Solver-specific fitted state and iteration history.
     scores
-        Common prediction metrics on the training data, keyed by metric name. For
-        an arbitrary dataset use :meth:`model.evaluate`.
+        Prediction metrics on the training data, keyed by name: the
+        solver-independent model metrics plus whatever the solver contributes
+        through :meth:`SolverFit.score` (for ChampLasso, ``cross_fit`` and
+        ``weighted_l2_error``). For an arbitrary dataset use
+        :meth:`model.evaluate`.
     voxelwise_explained_variance
         Source-wise contributions to explained variance on the training data
         (``None`` unless requested at fit time).
-    residual
-        Solver-specific training objective, or ``None`` when the solver does not
-        define one. Retained as a compatibility attribute for ChampLasso.
     history
         Solver-specific per-iteration history, when available.
     """
@@ -327,7 +328,6 @@ class NCRFResult:
             solver_fit: SolverFit,
             scores: dict[str, float],
             voxelwise_explained_variance: NDVar | None,
-            residual: float | None,
             cv_results: list[CVResult] | None,
     ) -> None:
         self.model = model
@@ -335,7 +335,6 @@ class NCRFResult:
         self.solver_fit = solver_fit
         self.scores = scores
         self.voxelwise_explained_variance = voxelwise_explained_variance
-        self.residual = residual
         self.history = getattr(solver_fit, 'history', None)
         self._cv_results = cv_results
 
@@ -344,39 +343,10 @@ class NCRFResult:
 
     def cv_info(self) -> fmtxt.Table:
         """Summarize stored cross-validation scores in a table."""
-        if self._cv_results is None:
-            raise ValueError(
-                "No cross-validation results; use a solver with multiple "
-                "candidates, such as ChampLasso(mu='auto').",
-            )
-        cv_results = sorted(self._cv_results, key=lambda result: result.solver.mu)
-        criteria = ('cross-fit', 'l2/mu')
-        best_mu = {criterion: self.cv_mu(criterion) for criterion in criteria}
-
-        table = fmtxt.Table('lllll')
-        table.cells('mu', 'cross-fit', 'l2-error', 'weighted l2-error', 'ES metric')
-        table.midrule()
-        fmt = '%.5f'
-        for result in cv_results:
-            mu = result.solver.mu
-            table.cell(fmtxt.stat(mu, fmt=fmt))
-            star = 1 if mu == best_mu['cross-fit'] else 0
-            table.cell(fmtxt.stat(result.cross_fit, fmt, star, 1))
-            star = 1 if mu == best_mu['l2/mu'] else 0
-            table.cell(fmtxt.stat(result.l2_error, fmt, star, 1))
-            table.cell(fmtxt.stat(result.weighted_l2_error, fmt=fmt))
-            table.cell(fmtxt.stat(result.estimation_stability, fmt=fmt))
-        # warnings
-        mus = [result.solver.mu for result in self._cv_results]
-        warnings = []
-        if self.solver.mu == min(mus):
-            warnings.append("Best mu is smallest mu")
-        if warnings:
-            table.caption(f"Warnings: {'; '.join(warnings)}")
-        return table
+        return self.solver.cv_table(self._require_cv_results(), self.solver)
 
     def cv_mu(self, criterion: str = 'cross-fit') -> float:
-        """Retrieve best mu based on cross-validation
+        """Retrieve best mu based on cross-validation (:class:`ChampLasso` only)
 
         Parameters
         ----------
@@ -387,4 +357,11 @@ class NCRFResult:
             - ``'l2'``: The smallest l2 error
             - ``'l2/mu'``: The local minimum in the l2 error with smallest mu
         """
-        return select_best_solver(self._cv_results, criterion).mu
+        from ._solvers.champ_lasso import select_by_criterion
+
+        return select_by_criterion(self._require_cv_results(), criterion).mu
+
+    def _require_cv_results(self) -> list[CVResult]:
+        if self._cv_results is None:
+            raise ValueError("No cross-validation results; use a solver with multiple candidates, such as ChampLasso(mu='auto').")
+        return self._cv_results

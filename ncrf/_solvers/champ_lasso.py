@@ -13,9 +13,12 @@ from dataclasses import dataclass, field, replace
 from math import log10, sqrt
 from multiprocessing import current_process
 from numbers import Real
+from typing import TYPE_CHECKING, Sequence
 
+from eelbrain import fmtxt
 import numpy as np
 from scipy import linalg
+from scipy.signal import find_peaks
 from tqdm import tqdm
 
 from .._fastac import Fasta
@@ -26,6 +29,12 @@ from .._linalg import _inv_sqrtm, compute_gamma
 from .._penalties import g, g_group, proxg_group_opt, shrink
 from .._typing import _R_tol, FloatArray, GradientFunction, MuArg, ObjectiveFunction
 from .base import Solver, SolverFit
+
+if TYPE_CHECKING:
+    from .._crossvalidation import CrossValidation, CVResult
+
+#: Per-iteration storage flags, shared by :class:`ChampLasso` and :class:`ChampLassoHistory`.
+_STORE_FIELDS = ('store_objective', 'store_residual', 'store_theta', 'store_gamma', 'store_sigma_b')
 
 
 @dataclass
@@ -388,6 +397,55 @@ class ChampLassoFit(SolverFit):
             forward, self.theta, self.sigma_b, data, return_weighted_l2,
         )
 
+    def score(
+            self,
+            forward: ForwardModel,
+            data: RegressionData,
+    ) -> dict[str, float]:
+        """Likelihood objective on ``data`` and its weighted-L2 term."""
+        cross_fit, weighted_l2_error = self.evaluate_objective(forward, data, True)
+        return {'cross_fit': cross_fit, 'weighted_l2_error': weighted_l2_error}
+
+
+def select_by_criterion(cv_results: Sequence[CVResult], criterion: str = 'cross-fit') -> ChampLasso:
+    """Pick the best solver from cross-validation results by the given criterion.
+
+    Parameters
+    ----------
+    cv_results
+        Results to choose from.
+    criterion
+        Criterion for best fit. Possible values:
+
+        - ``'cross-fit'``: The smallest cross-fit value (default)
+        - ``'l2'``: The smallest l2 error
+        - ``'l2/mu'``: The local minimum in the l2 error with smallest trf (largest mu)
+    """
+    if criterion == 'cross-fit':
+        return min(cv_results, key=lambda result: result.scores['cross_fit']).solver
+    elif criterion == 'l2':
+        return min(cv_results, key=lambda result: result.scores['l2_error']).solver
+    elif criterion == 'l2/mu':
+        results = sorted(cv_results, key=lambda result: result.solver.mu)
+        peaks, _ = find_peaks([-result.scores['l2_error'] for result in results])  # find local minima
+        if len(peaks) > 0:
+            # higher mu -> smaller trf
+            return max((results[peak] for peak in peaks), key=lambda result: result.solver.mu).solver
+        return min(results, key=lambda result: result.scores['l2_error']).solver
+    else:
+        raise ValueError(f'{criterion=}')
+
+
+def _select_es_solver(cv_results: Sequence[CVResult], minimum_mu: float) -> ChampLasso | None:
+    """Return the solver at the first ES local minimum above ``minimum_mu``."""
+    results = sorted(cv_results, key=lambda result: result.solver.mu)
+    for i, result in enumerate(results[:-1]):
+        if result.solver.mu < minimum_mu:
+            continue
+        if result.scores['estimation_stability'] < results[i + 1].scores['estimation_stability']:
+            return result.solver
+    return None
+
 
 @dataclass(frozen=True)
 class ChampLasso(Solver):
@@ -418,6 +476,8 @@ class ChampLasso(Solver):
 
     """
 
+    criterion = 'cross_fit'
+
     mu: MuArg = 'auto'
     n_iter: int = 30
     n_iterc: int = 10
@@ -428,6 +488,71 @@ class ChampLasso(Solver):
     store_theta: bool = False
     store_gamma: bool = False
     store_sigma_b: bool = False
+
+    def without_history(self) -> ChampLasso:
+        """Disable all per-iteration storage for cross-validation folds."""
+        return replace(self, **{field: False for field in _STORE_FIELDS})
+
+    def select(
+            self,
+            cv_results: Sequence[CVResult],
+            cv: CrossValidation,
+    ) -> ChampLasso:
+        """Select ``mu`` by cross-fit, optionally refined by estimation stability."""
+        logger = logging.getLogger(__name__)
+        solver = select_by_criterion(cv_results, 'cross-fit')
+        if not cv.use_es:
+            return solver
+
+        if solver.mu == max(result.solver.mu for result in cv_results):
+            logger.info(f'\nCVmu is {solver.mu}: could not find mu based on estimation stability criterion\nContinuing with cross-validation only.')
+            return solver
+        es_solver = _select_es_solver(cv_results, solver.mu)
+        if es_solver is None:
+            logger.warning('\nNo ES minima found: could not find mu based on estimation stability criterion.\nContinuing with cross-validation only.')
+            return solver
+        return es_solver
+
+    def refine(
+            self,
+            candidates: Sequence[ChampLasso],
+            best: ChampLasso,
+    ) -> tuple[ChampLasso, ...]:
+        """Return one additional decade when the best candidate is on a grid boundary."""
+        logger = logging.getLogger(__name__)
+        mus = [candidate.mu for candidate in candidates]
+        if best.mu == min(mus):
+            new_mus = np.logspace(np.log10(best.mu) - 1, np.log10(best.mu), 4)[:-1]
+        elif best.mu == max(mus):
+            new_mus = np.logspace(np.log10(best.mu), np.log10(best.mu) + 1, 4)[1:]
+        else:
+            return ()
+        direction = 'left' if new_mus[-1] < best.mu else 'right'
+        logger.info(f'CVmu is {best.mu}: extending range of mu towards {direction}')
+        return tuple(replace(best, mu=float(mu)) for mu in new_mus)
+
+    def cv_table(
+            self,
+            cv_results: Sequence[CVResult],
+            selected: ChampLasso,
+    ) -> fmtxt.Table:
+        """Summarize cross-validation scores by ``mu``."""
+        results = sorted(cv_results, key=lambda result: result.solver.mu)
+        best_mu = {criterion: select_by_criterion(cv_results, criterion).mu for criterion in ('cross-fit', 'l2/mu')}
+
+        table = fmtxt.Table('lllll')
+        table.cells('mu', 'cross-fit', 'l2-error', 'weighted l2-error', 'ES metric')
+        table.midrule()
+        fmt = '%.5f'
+        for result in results:
+            table.cell(fmtxt.stat(result.solver.mu, fmt=fmt))
+            table.cell(fmtxt.stat(result.scores['cross_fit'], fmt, 1 if result.solver.mu == best_mu['cross-fit'] else 0, 1))
+            table.cell(fmtxt.stat(result.scores['l2_error'], fmt, 1 if result.solver.mu == best_mu['l2/mu'] else 0, 1))
+            table.cell(fmtxt.stat(result.scores['weighted_l2_error'], fmt=fmt))
+            table.cell(fmtxt.stat(result.scores['estimation_stability'], fmt=fmt))
+        if selected.mu == min(result.solver.mu for result in results):
+            table.caption("Warnings: Best mu is smallest mu")
+        return table
 
     def candidates(
             self,
@@ -474,13 +599,7 @@ class ChampLasso(Solver):
         if not isinstance(self.mu, Real) or isinstance(self.mu, bool):
             raise ValueError("ChampLasso.solve() requires a fixed numeric mu; use NCRF.fit() to resolve a grid or mu='auto'")
         mu = float(self.mu)
-        history = ChampLassoHistory(
-            store_objective=self.store_objective,
-            store_residual=self.store_residual,
-            store_theta=self.store_theta,
-            store_gamma=self.store_gamma,
-            store_sigma_b=self.store_sigma_b,
-        )
+        history = ChampLassoHistory(**{field: getattr(self, field) for field in _STORE_FIELDS})
         state = _ChampLassoState(forward, self.n_iter, self.n_iterc, self.n_iterf)
         state.run(data, mu, self.tol, history, verbose)
         return ChampLassoFit(

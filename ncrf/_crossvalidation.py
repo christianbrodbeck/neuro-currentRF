@@ -12,26 +12,22 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from math import ceil
 from multiprocessing import Pool
-from operator import attrgetter
-from typing import TYPE_CHECKING, Callable, Iterator, List, Sequence
+from typing import TYPE_CHECKING, Callable, Iterator, Sequence
 
 from eelbrain._config import CONFIG
 import numpy as np
-import numpy.typing as npt
-from scipy.signal import find_peaks
 from tqdm import tqdm
 
 from ._data import RegressionData
-from ._metrics import l2_error
-from ._solvers import ChampLasso
+from ._typing import FloatArray
 
 if TYPE_CHECKING:
     from ._model import NCRF, NCRFModel
+    from ._solvers import Solver
 
-FloatArray = npt.NDArray[np.float64]
 _worker_context: tuple[Callable, tuple] | None = None
 
 
@@ -109,77 +105,57 @@ class CVResult:
     ----------
     solver
         Candidate that was evaluated.
-    weighted_l2_error
-        Mean held-out weighted L2 error.
-    estimation_stability
-        Prediction stability across folds.
-    cross_fit
-        Mean held-out ChampLasso objective.
-    l2_error
-        Mean held-out unweighted L2 error.
+    scores
+        Mean held-out scores across folds. Always contains the solver-independent
+        model metrics (``explained_variance``, ``l2_error``) and
+        ``estimation_stability``; solvers add their own through
+        :meth:`SolverFit.score`.
     """
 
-    solver: ChampLasso
-    weighted_l2_error: float
-    estimation_stability: float
-    cross_fit: float
-    l2_error: float
+    solver: Solver
+    scores: dict[str, float]
 
 
 def _score_candidate(
         estimator: NCRF,
         data: RegressionData,
         n_splits: int,
-        solver: ChampLasso,
+        solver: Solver,
 ) -> CVResult:
     """Fit and score all cross-validation folds for one solver candidate.
 
-    Each fold is fit through the estimator's single-model primitive, then
-    scored on its held-out window.
+    Each fold is fit through the estimator's single-model primitive, then scored
+    on its held-out window with the model metrics plus whatever the solver's fit
+    contributes.
     """
     d = max(basis.shape[1] for basis in data.basis)
     kf = TimeSeriesSplit(r=0.05, p=n_splits, d=d)
+    fold_solver = solver.without_history()
     models = []
-    weighted_l2 = []
-    cross_fit = []
-    l2 = []
+    fold_scores = []
     for train, test in kf.split(data.meg[0][0]):
         traindata = data.timeslice(train)
         testdata = data.timeslice(test)
-        fold_solver = replace(
-            solver,
-            store_objective=False,
-            store_residual=False,
-            store_theta=False,
-            store_gamma=False,
-            store_sigma_b=False,
-        )
         model, solver_fit = estimator._fit_model(traindata, fold_solver)
         models.append(model)
-        obj, wl2 = solver_fit.evaluate_objective(
-            estimator.forward, testdata, True,
-        )
-        weighted_l2.append(wl2)
-        cross_fit.append(obj)
-        l2.append(model.evaluate(testdata, [l2_error], accept_whitening=True)['l2_error'])
+        fold_scores.append({
+            **model.evaluate(testdata, accept_whitening=True),
+            **solver_fit.score(estimator.forward, testdata),
+        })
 
+    scores = {key: sum(fold[key] for fold in fold_scores) / len(fold_scores) for key in fold_scores[0]}
     estimation_stability = compute_es_metric(models, data)
-    return CVResult(
-        solver,
-        sum(weighted_l2) / len(weighted_l2),
-        10 if np.isnan(estimation_stability) else estimation_stability,
-        sum(cross_fit) / len(cross_fit),
-        sum(l2) / len(l2),
-    )
+    scores['estimation_stability'] = 10 if np.isnan(estimation_stability) else estimation_stability
+    return CVResult(solver, scores)
 
 
 def crossvalidate(
         estimator: NCRF,
         data: RegressionData,
-        candidates: Sequence[ChampLasso],
+        candidates: Sequence[Solver],
         n_splits: int,
         n_workers: int | None = None,
-) -> List[CVResult]:
+) -> list[CVResult]:
     """Perform cross-validation over a set of solver candidates.
 
     Each candidate is fit and scored on the same folds, and the resulting
@@ -193,7 +169,7 @@ def crossvalidate(
     data
         M/EEG data and the corresponding stimulus variables.
     candidates
-        Fixed ChampLasso configurations to compare.
+        Fixed solver configurations to compare.
     n_splits
         number of folds for cross-validation.
     n_workers
@@ -229,95 +205,26 @@ def crossvalidate(
     return results
 
 
-def select_best_solver(cv_results: Sequence[CVResult], criterion: str = 'cross-fit') -> ChampLasso:
-    """Pick the best solver from cross-validation results by the given criterion.
-
-    Parameters
-    ----------
-    cv_results
-        Results to choose from.
-    criterion
-        Criterion for best fit. Possible values:
-
-        - ``'cross-fit'``: The smallest cross-fit value (default)
-        - ``'l2'``: The smallest l2 error
-        - ``'l2/mu'``: The local minimum in the l2 error with smallest trf (largest mu)
-    """
-    if criterion == 'cross-fit':
-        return min(cv_results, key=attrgetter('cross_fit')).solver
-    elif criterion == 'l2':
-        return min(cv_results, key=attrgetter('l2_error')).solver
-    elif criterion == 'l2/mu':
-        results = sorted(cv_results, key=attrgetter('solver.mu'))
-        peaks, _ = find_peaks([-result.l2_error for result in results])  # find local minima
-        if len(peaks) > 0:
-            # higher mu -> smaller trf
-            return max((results[peak] for peak in peaks), key=attrgetter('solver.mu')).solver
-        return min(results, key=attrgetter('l2_error')).solver
-    else:
-        raise ValueError(f'criterion={criterion}')
-
-
-def _extend_mu_grid(candidates: Sequence[ChampLasso], best_solver: ChampLasso) -> tuple[ChampLasso, ...]:
-    """Return one additional decade when the best candidate is on a grid boundary."""
-    mus = [candidate.mu for candidate in candidates]
-    best_mu = best_solver.mu
-    if best_mu == min(mus):
-        new_mus = np.logspace(np.log10(best_mu) - 1, np.log10(best_mu), 4)[:-1]
-    elif best_mu == max(mus):
-        new_mus = np.logspace(np.log10(best_mu), np.log10(best_mu) + 1, 4)[1:]
-    else:
-        return ()
-    return tuple(replace(best_solver, mu=float(mu)) for mu in new_mus)
-
-
-def _select_es_solver(cv_results: Sequence[CVResult], minimum_mu: float) -> ChampLasso | None:
-    """Return the solver at the first ES local minimum above ``minimum_mu``."""
-    results = sorted(cv_results, key=attrgetter('solver.mu'))
-    for i, result in enumerate(results[:-1]):
-        if result.solver.mu < minimum_mu:
-            continue
-        if result.estimation_stability < results[i + 1].estimation_stability:
-            return result.solver
-    return None
-
-
-def search_param(
+def select_solver(
         estimator: NCRF,
         data: RegressionData,
-        candidates: Sequence[ChampLasso],
+        candidates: Sequence[Solver],
         cv: CrossValidation,
-) -> tuple[ChampLasso, List[CVResult]]:
-    """Cross-validate ChampLasso candidates and choose the regularization parameter.
+) -> tuple[Solver, list[CVResult]]:
+    """Cross-validate solver candidates and choose the best one.
 
-    Extends the candidate grid by a decade if the best value lands on a boundary,
-    and optionally refines the choice with the estimation-stability criterion.
+    The solver decides how to score, compare and extend its candidates; this
+    function only drives the passes.
     """
     logger = logging.getLogger(__name__)
     logger.info('Crossvalidation initiated!')
-    cv_results = crossvalidate(
-        estimator, data, candidates, cv.n_splits, cv.n_workers,
-    )
-    solver = select_best_solver(cv_results, 'cross-fit')
-    new_candidates = _extend_mu_grid(candidates, solver)
+    cv_results = crossvalidate(estimator, data, candidates, cv.n_splits, cv.n_workers)
+    solver = candidates[0].select(cv_results, cv)
 
-    if new_candidates:
-        direction = 'left' if new_candidates[-1].mu < solver.mu else 'right'
-        logger.info(f'CVmu is {solver.mu}: extending range of mu towards {direction}')
-        cv_results.extend(crossvalidate(
-            estimator, data, new_candidates, cv.n_splits, cv.n_workers,
-        ))
-        solver = select_best_solver(cv_results, 'cross-fit')
-
-    if cv.use_es:
-        if solver.mu == max(result.solver.mu for result in cv_results):
-            logger.info(f'\nCVmu is {solver.mu}: could not find mu based on estimation stability criterion\nContinuing with cross-validation only.')
-        else:
-            es_solver = _select_es_solver(cv_results, solver.mu)
-            if es_solver is None:
-                logger.warning('\nNo ES minima found: could not find mu based on estimation stability criterion.\nContinuing with cross-validation only.')
-            else:
-                solver = es_solver
+    extra = candidates[0].refine(candidates, solver)
+    if extra:
+        cv_results.extend(crossvalidate(estimator, data, extra, cv.n_splits, cv.n_workers))
+        solver = candidates[0].select(cv_results, cv)
     return solver, cv_results
 
 
