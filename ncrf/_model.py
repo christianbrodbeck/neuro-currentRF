@@ -13,13 +13,13 @@ from __future__ import annotations
 from functools import cached_property
 from typing import Sequence
 
-from eelbrain import NDVar, fmtxt
+from eelbrain import NDVar, UTS, fmtxt
 import numpy as np
 
 from ._crossvalidation import CrossValidation, CVResult, select_solver
 from ._data import RegressionData
+from ._trf_design import TRFDesign
 from ._forward import ForwardModel
-from ._reconstruction import TRFDesign
 from ._metrics import Metric, explained_variance, l2_error
 from ._repr import _count_repr, _forward_summary
 from ._solvers import Solver, SolverResult
@@ -82,9 +82,28 @@ class NCRF:
         """Whiten ``data``, optionally accepting a previously whitened dataset."""
         return data.whiten(self.forward.whitening_filter, accept_whitening=accept_whitening)
 
-    def _predict_whitened(self, covariate: FloatArray) -> FloatArray:
+    def _theta_for(self, data: RegressionData) -> FloatArray:
+        """Coefficients rescaled to match the covariate scaling of ``data``.
+
+        ``theta`` is fit against covariates normalized by the fit-time
+        :attr:`TRFDesign.stim_normalization`. Data prepared without
+        post-normalization is on the raw covariate scale, so the coefficients are
+        rescaled instead of the (much larger) covariate matrices.
+        """
+        fit_normalization = self._design.stim_normalization
+        data_normalization = data.design.stim_normalization
+        if data_normalization is not None:
+            # The data already carries a scaling; it is only usable if it is the same one
+            if fit_normalization is None or not np.array_equal(data_normalization, fit_normalization):
+                raise ValueError("data covariates were normalized differently than the data the model was fit on; prepare the data with post_normalize=False so that the model can apply its own normalization")
+            return self.theta
+        elif fit_normalization is None:
+            return self.theta
+        return self.theta / self._design.covariate_normalization
+
+    def _predict_whitened(self, theta: FloatArray, covariate: FloatArray) -> FloatArray:
         """Predicted whitened sensor data for one trial's covariate matrix."""
-        return np.dot(np.dot(self.forward.whitened_lead_field, self.theta), covariate.T)
+        return np.dot(np.dot(self.forward.whitened_lead_field, theta), covariate.T)
 
     def predict(
             self,
@@ -94,7 +113,8 @@ class NCRF:
     ) -> list[FloatArray]:
         """Predict whitened sensor-space data for each segment."""
         data = self._whiten(data, accept_whitening)
-        return [self._predict_whitened(covariate) for _, covariate in data]
+        theta = self._theta_for(data)
+        return [self._predict_whitened(theta, covariate) for _, covariate in data]
 
     def evaluate(
             self,
@@ -121,8 +141,9 @@ class NCRF:
             applied to ``data``.
         """
         data = self._whiten(data, accept_whitening)
+        theta = self._theta_for(data)
         observed = [meg for meg, _ in data]
-        predicted = [self._predict_whitened(covariate) for _, covariate in data]
+        predicted = [self._predict_whitened(theta, covariate) for _, covariate in data]
         return {metric.__name__: metric(observed, predicted) for metric in metrics}
 
     def voxelwise_explained_variance(
@@ -137,31 +158,62 @@ class NCRF:
         applied to ``data``.
         """
         data = self._whiten(data, accept_whitening)
+        theta = self._theta_for(data)
         W_leadfield = self.forward.whitened_lead_field
         temp = np.zeros(len(self.forward.source))
         for meg, covariate in data:
             total_var = np.var(meg, axis=1)
-            y_full = meg - self._predict_whitened(covariate)
+            y_full = meg - self._predict_whitened(theta, covariate)
             base_var = np.var(y_full, axis=1)
             for i in range(len(self.forward.source)):
                 # Zeroing source i's weights just removes its (linear) contribution
                 # to the prediction, so add that contribution back to the residual.
                 block = self.forward.source_block(i)
-                contribution = np.dot(np.dot(W_leadfield[:, block], self.theta[block]), covariate.T)
+                contribution = np.dot(np.dot(W_leadfield[:, block], theta[block]), covariate.T)
                 y_i = y_full + contribution
                 temp[i] += np.nansum((np.var(y_i, axis=1) - base_var) / total_var) / meg.shape[0]
 
         return NDVar(temp / len(data), self.forward.source)
 
     @cached_property
-    def h_scaled(self) -> NDVar | list[NDVar]:
-        """Return ``h`` with the original stimulus scaling restored."""
-        return self._design.reconstruct_scaled(self.h)
+    def h(self) -> NDVar | list[NDVar]:
+        """The spatio-temporal response function as Eelbrain NDVars.
+
+        Expands the Gabor coefficients in :attr:`theta` back into labeled response
+        functions, one per predictor variable (or a bare NDVar when the model was
+        fit on a single predictor).
+        """
+        design = self._design
+        space = self.forward.space
+        source_dims = (self.forward.source, space) if space else (self.forward.source,)
+
+        h = []
+        start = 0
+        for basis, stim_len, dim, name, tstart in zip(design.basis, design.stim_lens, design.stim_dims, design.stim_names, design.tstart):
+            # This predictor's columns of theta, as (stim_len, source, basis)
+            stop = start + basis.shape[1] * stim_len
+            x = self.theta[:, start:stop].reshape((self.theta.shape[0], stim_len, -1))
+            x = np.squeeze(x.swapaxes(1, 0))
+            start = stop
+
+            x = np.dot(x, basis.T) / self.forward.lead_field_scaling
+            time = UTS(tstart, design.tstep, x.shape[-1])
+            dims = (dim, *source_dims, time) if dim else (*source_dims, time)
+            h.append(NDVar(x.reshape(*(len(d) for d in dims)), dims, name=name))
+
+        if design.stim_is_single:
+            return h[0]
+        return h
 
     @cached_property
-    def h(self) -> NDVar | list[NDVar]:
-        """Return the spatio-temporal response function as Eelbrain NDVars."""
-        return self._design.reconstruct(self.theta, self.forward)
+    def h_scaled(self) -> NDVar | list[NDVar]:
+        """:attr:`h` with the original stimulus scaling restored."""
+        scaling = self._design.stim_scaling
+        if scaling is None:
+            return self.h
+        elif self._design.stim_is_single:
+            return self.h * scaling[0]
+        return [h * s for h, s in zip(self.h, scaling)]
 
 
 class NCRFEstimator:
@@ -209,7 +261,7 @@ class NCRFEstimator:
         model = NCRF(
             forward=self.forward,
             theta=solver_fit.theta,
-            design=data.trf_design,
+            design=data.design,
         )
         return model, solver_fit
 

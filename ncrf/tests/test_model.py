@@ -17,7 +17,7 @@ from ncrf._model import NCRFEstimator, NCRF
 from ncrf._solvers import Solver, SolverResult
 from .fetch import load
 
-from eelbrain import Categorial, concatenate
+from eelbrain import Categorial, NDVar, Sensor, UTS, concatenate
 
 
 def test_fit_model():
@@ -26,13 +26,13 @@ def test_fit_model():
     solver = Mock()
     solver_fit = SolverResult(np.empty((2, 3)))
     solver.solve.return_value = solver_fit
-    data = Mock(trf_design=object())
+    data = Mock(design=object())
 
     model, returned_fit = estimator._fit_model(data, solver, True)
 
     assert model.forward is estimator.forward
     assert model.theta is solver_fit.theta
-    assert model._design is data.trf_design
+    assert model._design is data.design
     assert returned_fit is solver_fit
     solver.solve.assert_called_once_with(estimator.forward, data, verbose=True)
 
@@ -51,7 +51,7 @@ def test_fit_accepts_generic_solver(monkeypatch):
     )
     data = MagicMock()
     data.whiten.return_value = data
-    data.trf_design = object()
+    data.design = Mock(stim_normalization=None)
     data.__iter__.side_effect = lambda: iter([
         (np.arange(4, dtype=float)[None, :], np.ones((4, 1))),
     ])
@@ -124,6 +124,51 @@ def test_whitening_guard():
     with pytest.raises(ValueError, match="pass accept_whitening=True"):
         model._whiten(data)
     assert model._whiten(data, accept_whitening=True) is data
+
+
+def _synthetic_data(post_normalize: bool, seed: int = 0) -> RegressionData:
+    """Two-predictor dataset on strongly mismatched stimulus scales."""
+    rng = np.random.RandomState(seed)
+    time = UTS(0, 0.01, 200)
+    sensor = Sensor([[1., 0, 0], [0, 1, 0], [0, 0, 1]], ['a', 'b', 'c'])
+    meg = [NDVar(rng.normal(size=(3, 200)), (sensor, time))]
+    stim = [[
+        NDVar(rng.normal(size=200) * 100, (time,), name='loud'),
+        NDVar(rng.normal(size=200) * 0.01, (time,), name='quiet'),
+    ]]
+    return RegressionData.from_data(meg, stim, 0, 0.05, post_normalize=post_normalize)
+
+
+def _model(design, n_coefficients: int, seed: int = 1) -> NCRF:
+    rng = np.random.RandomState(seed)
+    forward = Mock(
+        whitening_filter=np.eye(3),
+        whitened_lead_field=rng.normal(size=(3, 4)),
+    )
+    return NCRF(forward, rng.normal(size=(4, n_coefficients)), design)
+
+
+def test_predict_applies_fit_normalization():
+    normalized = _synthetic_data(True)
+    raw = _synthetic_data(False)
+    assert normalized.design.stim_normalization is not None
+    assert raw.design.stim_normalization is None
+    # The two datasets are on genuinely different covariate scales
+    assert not np.allclose(normalized.covariates[0], raw.covariates[0])
+
+    # A model fit on normalized covariates must undo that scaling to predict raw data
+    model = _model(normalized.design, normalized.design.n_coefficients)
+    for expected, actual in zip(model.predict(normalized), model.predict(raw)):
+        np.testing.assert_allclose(expected, actual)
+
+
+def test_predict_rejects_mismatched_normalization():
+    design = _synthetic_data(True).design
+    model = _model(design, design.n_coefficients)
+    other = _synthetic_data(True, seed=2)
+
+    with pytest.raises(ValueError, match="normalized differently"):
+        model.predict(other)
 
 
 def test_gaussian_basis():

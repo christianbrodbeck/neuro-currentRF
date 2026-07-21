@@ -206,8 +206,7 @@ class _ChampLassoState:
         # working estimate, seeded from the above
         self.Gamma = [copy.deepcopy(g) for g in self._init_gamma]
         self.Sigma_b = [s.copy() for s in self._init_sigma_b]
-        l = sum(basis.shape[1] * (len(dim) if dim else 1) for basis, dim in zip(data.basis, data.stim_dims))
-        self.theta = np.zeros((self.forward.lead_field.shape[1], l), dtype=np.float64)
+        self.theta = np.zeros((self.forward.lead_field.shape[1], data.design.n_coefficients), dtype=np.float64)
 
     def _solve(
             self,

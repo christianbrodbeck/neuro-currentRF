@@ -84,13 +84,11 @@ def compute_es_metric(models: Sequence[NCRF], data: RegressionData) -> float:
     float
         Estimation-stability score.
     """
-    Y = np.array([
-        np.concatenate([
-            model._predict_whitened(covariate).ravel()
-            for covariate in data.covariates
-        ])
-        for model in models
-    ])
+    Y = []
+    for model in models:
+        theta = model._theta_for(data)
+        Y.append(np.concatenate([model._predict_whitened(theta, covariate).ravel() for covariate in data.covariates]))
+    Y = np.array(Y)
     Y_bar = Y.mean(axis=0)
     VarY = (((Y - Y_bar) ** 2).sum(axis=1)).mean()
     denominator = (Y_bar ** 2).sum()
@@ -128,7 +126,7 @@ def _score_candidate(
     on its held-out window with the model metrics plus whatever the solver's fit
     contributes.
     """
-    d = max(basis.shape[1] for basis in data.basis)
+    d = max(basis.shape[1] for basis in data.design.basis)
     kf = TimeSeriesSplit(r=0.05, p=n_splits, d=d)
     fold_solver = solver.without_history()
     models = []
