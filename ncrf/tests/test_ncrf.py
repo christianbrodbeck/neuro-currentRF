@@ -47,6 +47,7 @@ def test_champ_lasso_auto_candidates(monkeypatch):
     assert ChampLasso().candidates(None, None) == expected
 
 
+@pytest.mark.slow
 def test_ncrf():
     meg = load('meg').sub(time=(0, 5))
     stim = load('stim').sub(time=(0, 5))

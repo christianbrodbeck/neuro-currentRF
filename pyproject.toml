@@ -78,6 +78,12 @@ test = [
   'seaborn'  # required to import `eelbrain.testing`
 ]
 
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests as slow or heavy (deselect with '-m \"not slow\"')",
+]
+addopts = "--strict-markers"
+
 [tool.tomlsort]
 all = true
 ignore_case = true
