@@ -6,12 +6,45 @@ import pickle
 
 from eelbrain import set_time, set_tmin
 import numpy as np
+import pytest
 
-from ncrf import fit_ncrf, NCRFModel
+from ncrf import ChampLasso, fit_ncrf, NCRFModel
 from ncrf.tests.fetch import load
 
 from eelbrain import Categorial, concatenate
 from eelbrain.testing import assert_dataobj_equal
+
+
+@pytest.mark.parametrize(
+    'mu, expected',
+    [
+        (0.1, (0.1,)),
+        (1, (1.0,)),
+        ([0.1], (0.1,)),
+        ((0.1, 0.2), (0.1, 0.2)),
+        (np.array([0.1, 0.2]), (0.1, 0.2)),
+    ],
+)
+def test_champ_lasso_candidates(mu, expected):
+    candidates = ChampLasso(mu).candidates(None, None)
+    assert tuple(candidate.mu for candidate in candidates) == expected
+
+
+@pytest.mark.parametrize('mu', [[], 'invalid', [0.1, 'invalid']])
+def test_champ_lasso_candidates_invalid(mu):
+    with pytest.raises((TypeError, ValueError)):
+        ChampLasso(mu).candidates(None, None)
+
+
+def test_champ_lasso_auto_candidates(monkeypatch):
+    expected = (ChampLasso(0.1), ChampLasso(0.2))
+    monkeypatch.setattr(
+        ChampLasso,
+        'auto_candidates',
+        lambda self, forward, data: expected,
+    )
+
+    assert ChampLasso().candidates(None, None) == expected
 
 
 def test_ncrf():
@@ -46,8 +79,13 @@ def test_ncrf():
     assert_dataobj_equal(model_2.h, result.model.h)
 
     # test Gaussian basis standard deviation
-    result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, normalize='l1', mu=0.0019444, n_iter=1, n_iterc=1,
-                      n_iterf=1, basis_std=0.050)
+    solver = ChampLasso(mu=0.0019444, n_iter=1, n_iterc=1, n_iterf=1)
+    result = fit_ncrf(
+        meg, stim, fwd, emptyroom, tstop=0.2, normalize='l1', solver=solver,
+        basis_std=0.050,
+    )
+    assert result.solver is solver
+    assert result.scores['explained_variance'] == result.explained_var
     assert result.model.basis_std == 0.050
 
     # 2 stimuli, one of them 2-d, normalize='l2'
@@ -81,7 +119,7 @@ def test_ncrf():
 
     # cross-validation
     result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, normalize='l1', mu='auto', n_iter=1, n_iterc=2, n_iterf=2, do_post_normalization=False)
-    np.testing.assert_allclose(result.model.mu, 0.0203, rtol=0.001)
+    np.testing.assert_allclose(result.solver.mu, 0.0203, rtol=0.001)
     result.cv_info()
 
     # test without multiprocessing

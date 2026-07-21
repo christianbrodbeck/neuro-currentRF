@@ -10,53 +10,24 @@ and provenance.
 # License: BSD (3-clause)
 from __future__ import annotations
 
-import logging
 from functools import cached_property
-from numbers import Real
-from operator import attrgetter
-from typing import Literal
 
 from eelbrain import NDVar, fmtxt
 import numpy as np
 
-from ._crossvalidation import CVResult, search_mu, select_best_mu
+from ._crossvalidation import CrossValidation, CVResult, search_param, select_best_solver
 from ._data import RegressionData
 from ._forward import ForwardModel
 from ._reconstruction import TRFDesign
-from ._solver import FitHistory, Solver, _evaluate_objective
-from ._typing import FloatArray, MuArg
+from ._metrics import explained_variance, l2_error
+from ._solvers import Solver, SolverFit
+from ._typing import FloatArray
 
 
 def _orientation_repr(name: str, forward: ForwardModel) -> str:
     """Shared ``repr`` for the estimator/model/result trio."""
     orientation = 'free' if forward.space else 'fixed'
     return f"<[{orientation} orientation] {name} on {forward.source!r}>"
-
-
-def _normalize_mu(mu: MuArg) -> float | tuple[float, ...] | Literal['auto']:
-    """Normalize the public ``mu`` argument into a fixed value or search grid."""
-    if isinstance(mu, str):
-        if mu == 'auto':
-            return mu
-        raise ValueError(f"{mu=}: expected a number, a sequence of numbers, or 'auto'")
-    if isinstance(mu, Real) and not isinstance(mu, bool):
-        return float(mu)
-
-    try:
-        values = tuple(mu)
-    except TypeError:
-        raise TypeError(f"{mu=}: expected a number, a sequence of numbers, or 'auto'") from None
-    if not values:
-        raise ValueError("mu grid must contain at least one value")
-    if any(isinstance(value, (bool, str, bytes)) for value in values):
-        raise TypeError(f"{mu=}: all grid values must be numbers")
-    try:
-        values = tuple(float(value) for value in values)
-    except (TypeError, ValueError):
-        raise TypeError(f"{mu=}: all grid values must be numbers") from None
-    if len(values) == 1:
-        return values[0]
-    return values
 
 
 class NCRFModel:
@@ -73,12 +44,6 @@ class NCRFModel:
         The :class:`ForwardModel` (lead field, whitening filter, source/sensor/space).
     theta
         NCRF coefficients over the Gabor basis; the frozen weights.
-    Gamma
-        Per-trial source covariance estimates.
-    Sigma_b
-        Per-trial data covariance estimates (used by :meth:`eval_obj`).
-    mu
-        Regularization parameter used to fit the weights.
     tstart, tstep, tstop, basis_std
         TRF timing and Gaussian-basis width.
     """
@@ -86,19 +51,12 @@ class NCRFModel:
 
     def __init__(
             self,
-            *,
             forward: ForwardModel,
             theta: FloatArray,
-            Gamma: list,
-            Sigma_b: list,
-            mu: float,
             design: TRFDesign,
     ) -> None:
         self.forward = forward
         self.theta = theta
-        self.Gamma = Gamma
-        self.Sigma_b = Sigma_b
-        self.mu = mu
         self._design = design
 
     @property
@@ -117,18 +75,6 @@ class NCRFModel:
     def basis_std(self) -> float:
         return self._design.basis_std
 
-    @classmethod
-    def _from_solver(cls, solver: Solver, data: RegressionData) -> NCRFModel:
-        """Freeze a finished solver together with the fitted data's metadata."""
-        return cls(
-            forward=solver.forward,
-            theta=solver.theta,
-            Gamma=solver.Gamma,
-            Sigma_b=solver.Sigma_b,
-            mu=solver.mu,
-            design=data.trf_design,
-        )
-
     def __repr__(self) -> str:
         return _orientation_repr(self._name, self.forward)
 
@@ -144,33 +90,15 @@ class NCRFModel:
         """Predicted whitened sensor data for one trial's covariate matrix."""
         return np.dot(np.dot(self.forward.whitened_lead_field, self.theta), covariate.T)
 
-    def eval_obj(
+    def predict(
             self,
             data: RegressionData,
-            return_wl2: bool = False,
             *,
             accept_whitening: bool = False,
-    ) -> float | tuple[float, float]:
-        """Evaluate the model's objective value on a dataset.
-
-        Parameters
-        ----------
-        data
-            Dataset on which to evaluate the objective.
-        return_wl2
-            Also return the weighted L2 term.
-        accept_whitening
-            Accept pre-whitened data. The caller is responsible for ensuring that
-            the model's whitening filter was applied.
-
-        Returns
-        -------
-        float | tuple[float, float]
-            Objective value, or a pair containing the objective value and the
-            weighted L2 term when ``return_wl2`` is true.
-        """
+    ) -> list[FloatArray]:
+        """Predict whitened sensor-space data for each segment."""
         data = self._whiten(data, accept_whitening)
-        return _evaluate_objective(self.forward, self.theta, self.Sigma_b, data, return_wl2)
+        return [self._predict_whitened(covariate) for _, covariate in data]
 
     def explained_variance(
             self,
@@ -183,15 +111,7 @@ class NCRFModel:
         Set ``accept_whitening=True`` only when the model's whitening filter was
         applied to ``data``.
         """
-        logger = logging.getLogger(__name__)
-        data = self._whiten(data, accept_whitening)
-        temp = 0
-        for meg, covariate in data:
-            y = meg - self._predict_whitened(covariate)
-            temp += np.nansum(np.var(y, axis=1) / np.var(meg, axis=1)) / y.shape[0]
-
-        logger.debug(f'{self.mu}: {1 - temp / len(data)}')
-        return 1 - temp / len(data)
+        return explained_variance(self, data, accept_whitening=accept_whitening)
 
     def voxelwise_explained_variance(
             self,
@@ -246,12 +166,6 @@ class NCRF:
     noise_covariance
         Noise covariance matrix in sensor space, typically estimated from empty-room
         recordings.
-    n_iter
-        Number of outer iterations of the algorithm.
-    n_iterc
-        Number of Champagne iterations within each outer iteration.
-    n_iterf
-        Number of FASTA iterations within each outer iteration.
 
     Notes
     -----
@@ -260,8 +174,7 @@ class NCRF:
     1. Use :meth:`RegressionData.from_data` to construct a prepared dataset
        from MEG and stimulus segments.
     2. Initialize :class:`NCRF` with the lead field and noise covariance.
-    3. Call :meth:`NCRF.fit` with the :class:`RegressionData` instance; it
-       returns an :class:`NCRFResult` with the estimated cortical TRFs.
+    3. Call :meth:`NCRF.fit` with the data and a configured :class:`Solver`.
     """
     _name = 'cTRFs estimator'
 
@@ -269,116 +182,99 @@ class NCRF:
             self,
             lead_field: NDVar,
             noise_covariance: FloatArray,
-            n_iter: int = 30,
-            n_iterc: int = 10,
-            n_iterf: int = 100,
     ) -> None:
         self.forward = ForwardModel.from_lead_field(lead_field, noise_covariance)
-        self.n_iter = n_iter
-        self.n_iterc = n_iterc
-        self.n_iterf = n_iterf
 
     def __repr__(self) -> str:
         return _orientation_repr(self._name, self.forward)
 
-    def _new_solver(self) -> Solver:
-        return Solver(self.forward, self.n_iter, self.n_iterc, self.n_iterf)
-
     def _fit_model(
             self,
             data: RegressionData,
-            mu: float,
-            tol: float,
-            history: FitHistory | None = None,
+            solver: Solver,
             verbose: bool = False,
-    ) -> NCRFModel:
-        """Fit one model on prepared, whitened data."""
-        if history is None:
-            history = FitHistory(store_objective=False, store_residual=False)
-        solver = self._new_solver()
-        solver.run(data, mu, tol, history, verbose)
-        return NCRFModel._from_solver(solver, data)
+    ) -> tuple[NCRFModel, SolverFit]:
+        """Fit one solver configuration on prepared, whitened data."""
+        solver_fit = solver.solve(self.forward, data, verbose=verbose)
+        model = NCRFModel(
+            forward=self.forward,
+            theta=solver_fit.theta,
+            design=data.trf_design,
+        )
+        return model, solver_fit
 
     def fit(
             self,
             data: RegressionData,
-            mu: MuArg = 'auto',
-            tol: float = 1e-5,
+            solver: Solver,
+            *,
+            cv: CrossValidation | None = None,
             verbose: bool = False,
-            use_ES: bool = False,
-            n_splits: int = 3,
-            n_workers: int = None,
             compute_explained_variance: bool = False,
             accept_whitening: bool = False,
-            store_theta: bool = False,
-            store_gamma: bool = False,
-            store_sigma_b: bool = False,
     ) -> NCRFResult:
-        """Fit the NCRF model to prepared regression data.
-
-        Estimate both TRFs and source variance from the observed MEG data by solving
-        the Bayesian optimization problem formulated in :cite:`das2020neuro`.
+        """Fit a configured solver to prepared regression data.
 
         Parameters
         ----------
         data
             M/EEG data and the corresponding stimulus variables. Not mutated.
-        mu
-            Regularization parameter. A scalar fits one model, a sequence selects
-            among the supplied values with cross-validation, and ``'auto'`` derives
-            and cross-validates a search grid from the data.
-        tol
-            tolerence parameter. Decides when to stop outer iterations.
+        solver
+            Solver configuration. Solvers that expose multiple candidates are
+            selected through cross-validation before the final fit.
+        cv
+            Cross-validation configuration. The default is used when ``solver``
+            exposes multiple candidates and ``cv`` is omitted.
         verbose
             If set True prints intermediate values of the cost functions (default ``False``).
-        use_ES
-            use estimation stability criterion :cite:`limEstimationStabilityCrossValidation2016`
-            to choose the best ``mu`` (default ``False``).
-        n_splits
-            Number of cross-validation folds.
-        n_workers
-            Number of workers to use for cross-validation.
-            ``None`` to use ``cpu_count/2`` (default).
-            ``0`` to run without :mod:`multiprocessing`.
         compute_explained_variance
             Compute voxel-wise explained variance.
         accept_whitening
             Accept pre-whitened data. This is intended for internal workflows
             that slice an already-whitened dataset, such as cross-validation.
-        store_theta
-            Store the ``theta`` estimate after each outer iteration in the
-            result's :class:`FitHistory`.
-        store_gamma
-            Store the source covariances after each outer iteration.
-        store_sigma_b
-            Store the data covariances after each outer iteration.
 
         Returns
         -------
         NCRFResult
             The fitted model and estimated cortical TRFs.
         """
-        data = data.whiten(self.forward.whitening_filter, accept_whitening=accept_whitening)
+        data = data.whiten(
+            self.forward.whitening_filter,
+            accept_whitening=accept_whitening,
+        )
 
-        history = FitHistory(store_theta=store_theta, store_gamma=store_gamma, store_sigma_b=store_sigma_b)
-        mu = _normalize_mu(mu)
-        if isinstance(mu, float):
+        candidates = solver.candidates(self.forward, data)
+        if not candidates:
+            raise ValueError("solver produced no candidate configurations")
+        if len(candidates) == 1:
+            solver = candidates[0]
             cv_results = None
         else:
-            mu, cv_results = search_mu(self, data, mu, tol, n_splits, n_workers, use_ES)
+            if cv is None:
+                cv = CrossValidation()
+            solver, cv_results = search_param(self, data, candidates, cv)
 
-        model = self._fit_model(data, mu, tol, history, verbose)
-
-        residual = model.eval_obj(data, accept_whitening=True)
+        model, solver_fit = self._fit_model(data, solver, verbose)
+        residual = solver_fit.evaluate_objective(self.forward, data)
         explained_var = model.explained_variance(data, accept_whitening=True)
+        common_l2_error = l2_error(model, data, accept_whitening=True)
         if compute_explained_variance:
             voxelwise = model.voxelwise_explained_variance(data, accept_whitening=True)
         else:
             voxelwise = None
 
         return NCRFResult(
-            model, explained_var=explained_var, voxelwise_explained_variance=voxelwise,
-            residual=residual, history=history, cv_results=cv_results,
+            model,
+            solver=solver,
+            solver_fit=solver_fit,
+            scores={
+                'explained_variance': explained_var,
+                'l2_error': common_l2_error,
+            },
+            explained_var=explained_var,
+            voxelwise_explained_variance=voxelwise,
+            residual=residual,
+            cv_results=cv_results,
         )
 
 
@@ -386,13 +282,19 @@ class NCRFResult:
     """Report produced by :meth:`NCRF.fit`.
 
     Bundles the fitted :class:`NCRFModel` with the training-set evaluation and the
-    fitting provenance.  Model-level quantities (``h``, ``theta``, ``mu``, …) live
-    on :attr:`model`; this object holds only what is specific to *this* fit.
+    fitting provenance. Model-level predictive quantities live on :attr:`model`;
+    solver-specific state lives on :attr:`solver_fit`.
 
     Attributes
     ----------
     model
         The fitted :class:`NCRFModel` (frozen weights + prediction/evaluation API).
+    solver
+        Immutable solver configuration used for the fit.
+    solver_fit
+        Solver-specific fitted state and iteration history.
+    scores
+        Common prediction metrics calculated for every solver.
     explained_var
         Fraction of total variance explained, evaluated on the training data. For
         an arbitrary dataset use :meth:`model.explained_variance`.
@@ -400,9 +302,10 @@ class NCRFResult:
         Source-wise contributions to explained variance on the training data
         (``None`` unless requested at fit time).
     residual
-        The fit error, i.e. ``model.eval_obj`` on the training data.
+        Solver-specific training objective, or ``None`` when the solver does not
+        define one. Retained as a compatibility attribute for ChampLasso.
     history
-        Per-iteration :class:`FitHistory` accumulated during fitting.
+        Solver-specific per-iteration history, when available.
     """
     _name = 'cTRFs estimator'
 
@@ -410,17 +313,22 @@ class NCRFResult:
             self,
             model: NCRFModel,
             *,
+            solver: Solver,
+            solver_fit: SolverFit,
+            scores: dict[str, float],
             explained_var: float,
             voxelwise_explained_variance: NDVar | None,
-            residual: float,
-            history: FitHistory,
+            residual: float | None,
             cv_results: list[CVResult] | None,
     ) -> None:
         self.model = model
+        self.solver = solver
+        self.solver_fit = solver_fit
+        self.scores = scores
         self.explained_var = explained_var
         self.voxelwise_explained_variance = voxelwise_explained_variance
         self.residual = residual
-        self.history = history
+        self.history = getattr(solver_fit, 'history', None)
         self._cv_results = cv_results
 
     def __repr__(self) -> str:
@@ -429,8 +337,11 @@ class NCRFResult:
     def cv_info(self) -> fmtxt.Table:
         """Summarize stored cross-validation scores in a table."""
         if self._cv_results is None:
-            raise ValueError("CV: no cross-validation was performed. Use mu='auto' to perform cross-validation.")
-        cv_results = sorted(self._cv_results, key=attrgetter('mu'))
+            raise ValueError(
+                "No cross-validation results; use a solver with multiple "
+                "candidates, such as ChampLasso(mu='auto').",
+            )
+        cv_results = sorted(self._cv_results, key=lambda result: result.solver.mu)
         criteria = ('cross-fit', 'l2/mu')
         best_mu = {criterion: self.cv_mu(criterion) for criterion in criteria}
 
@@ -439,17 +350,18 @@ class NCRFResult:
         table.midrule()
         fmt = '%.5f'
         for result in cv_results:
-            table.cell(fmtxt.stat(result.mu, fmt=fmt))
-            star = 1 if result.mu == best_mu['cross-fit'] else 0
+            mu = result.solver.mu
+            table.cell(fmtxt.stat(mu, fmt=fmt))
+            star = 1 if mu == best_mu['cross-fit'] else 0
             table.cell(fmtxt.stat(result.cross_fit, fmt, star, 1))
-            star = 1 if result.mu == best_mu['l2/mu'] else 0
+            star = 1 if mu == best_mu['l2/mu'] else 0
             table.cell(fmtxt.stat(result.l2_error, fmt, star, 1))
             table.cell(fmtxt.stat(result.weighted_l2_error, fmt=fmt))
             table.cell(fmtxt.stat(result.estimation_stability, fmt=fmt))
         # warnings
-        mus = [res.mu for res in self._cv_results]
+        mus = [result.solver.mu for result in self._cv_results]
         warnings = []
-        if self.model.mu == min(mus):
+        if self.solver.mu == min(mus):
             warnings.append("Best mu is smallest mu")
         if warnings:
             table.caption(f"Warnings: {'; '.join(warnings)}")
@@ -467,4 +379,4 @@ class NCRFResult:
             - ``'l2'``: The smallest l2 error
             - ``'l2/mu'``: The local minimum in the l2 error with smallest mu
         """
-        return select_best_mu(self._cv_results, criterion)
+        return select_best_solver(self._cv_results, criterion).mu

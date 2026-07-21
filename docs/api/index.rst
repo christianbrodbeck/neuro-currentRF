@@ -10,4 +10,11 @@ The ``ncrf`` module provide functions for fitting NCRFs from data.
 
     fit_ncrf
     NCRF
+    NCRFModel
     RegressionData
+    Solver
+    SolverFit
+    ChampLasso
+    CrossValidation
+    explained_variance
+    l2_error

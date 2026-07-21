@@ -1,33 +1,35 @@
-"""Iterative optimization for a single NCRF fit.
+"""Champagne/Lasso NCRF solver.
 
-:class:`Solver` runs the alternating FASTA/Champagne procedure that estimates
-the TRF coefficients and per-trial source/data covariances, while
-:class:`FitHistory` records the requested per-iteration quantities.
+This module contains the complete high-level implementation of the original
+NCRF optimization algorithm. :class:`ChampLasso` is an immutable solver
+configuration; :class:`_ChampLassoState` is private mutable state for one run.
 """
 from __future__ import annotations
 
 import copy
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from math import log10, sqrt
 from multiprocessing import current_process
+from numbers import Real
 
 import numpy as np
 from scipy import linalg
 from tqdm import tqdm
 
-from ._fastac import Fasta
-from ._data import RegressionData
-from ._forward import ForwardModel
-from ._initialization import mne_initialization
-from ._linalg import _inv_sqrtm, compute_gamma
-from ._penalties import g, g_group, proxg_group_opt, shrink
-from ._typing import _R_tol, FloatArray, GradientFunction, ObjectiveFunction
+from .._fastac import Fasta
+from .._data import RegressionData
+from .._forward import ForwardModel
+from .._initialization import mne_initialization
+from .._linalg import _inv_sqrtm, compute_gamma
+from .._penalties import g, g_group, proxg_group_opt, shrink
+from .._typing import _R_tol, FloatArray, GradientFunction, MuArg, ObjectiveFunction
+from .base import Solver, SolverFit
 
 
 @dataclass
-class FitHistory:
+class ChampLassoHistory:
     """Per-iteration quantities accumulated during fitting.
 
     Each ``store_*`` flag selects whether the matching quantity is retained.
@@ -85,12 +87,7 @@ def _evaluate_objective(
         data: RegressionData,
         return_wl2: bool = False,
 ) -> float | tuple[float, float]:
-    """Negative-log-likelihood objective for whitened ``data`` given the weights.
-
-    Shared by the optimizer (:meth:`Solver.run`, for its history) and the fitted
-    model (:meth:`NCRFModel.eval_obj`); depends only on ``forward``/``theta``/
-    ``Sigma_b``. ``data`` must already be whitened.
-    """
+    """Evaluate the ChampLasso objective on whitened data."""
     ll2 = 0
     logdet = 0
     for key, (meg, covariate) in enumerate(data):
@@ -123,47 +120,8 @@ def _evaluate_objective(
     return (ll2 + logdet) / len(data)
 
 
-class Solver:
-    """Transient state and iterative optimization for a single fit.
-
-    A solver is bound to a read-only :class:`ForwardModel`.  It can be run on
-    different datasets (e.g. cross-validation folds) without interfering with other
-    solvers built from the same forward model.  After :meth:`run`, the estimate is
-    available in ``theta``, ``Gamma`` and ``Sigma_b``.
-
-    Parameters
-    ----------
-    forward
-        Shared, read-only forward model.
-    n_iter
-        Number of outer iterations.
-    n_iterc
-        Number of Champagne iterations per outer iteration.
-    n_iterf
-        Number of FASTA iterations per outer iteration.
-
-    Attributes
-    ----------
-    forward, n_iter, n_iterc, n_iterf
-        Configuration, fixed for the lifetime of the solver (see Parameters).
-    mu
-        Regularization parameter; ``None`` until set by :meth:`run`. Read by
-        :meth:`NCRFResult._from_fit`. Not used by :meth:`gradient`.
-    theta
-        TRF coefficients over the Gabor basis; the main estimate. ``None`` until
-        :meth:`run` (or :meth:`gradient`) initializes it. Read by
-        :meth:`NCRFResult._from_fit`.
-    Gamma
-        Per-trial source covariance estimates. ``None`` until initialized; read
-        by :meth:`NCRFResult._from_fit`.
-    Sigma_b
-        Per-trial data covariance estimates. ``None`` until initialized; read by
-        :meth:`NCRFResult._from_fit`.
-    _init_gamma, _init_sigma_b
-        Per-trial initialization seeds (initial source variances and data
-        covariances) computed once in :meth:`_initialize`; ``theta``,
-        ``Gamma`` and ``Sigma_b`` are seeded from these.
-    """
+class _ChampLassoState:
+    """Mutable state for one :meth:`ChampLasso.solve` call."""
 
     def __init__(
             self,
@@ -177,8 +135,6 @@ class Solver:
         self.n_iter = n_iter
         self.n_iterc = n_iterc
         self.n_iterf = n_iterf
-        # regularization (set by run())
-        self.mu: float | None = None
         # initialization seeds (set by _initialize)
         self._init_gamma: list | None = None
         self._init_sigma_b: list[FloatArray] | None = None
@@ -188,15 +144,7 @@ class Solver:
         self.Sigma_b: list[FloatArray] | None = None
 
     def _initialize(self, data: RegressionData) -> None:
-        """Seed solver state from a minimum-norm style initialization.
-
-        Called once per solver, from the alternative entry points :meth:`run` and
-        :meth:`gradient` (each used on its own solver instance, so this never runs
-        twice on the same solver). Computes the MNE seeds ``_init_gamma`` /
-        ``_init_sigma_b`` — which :meth:`_solve` re-reads at the start of every
-        Champagne solve — and seeds the working estimate ``theta`` / ``Gamma`` /
-        ``Sigma_b``.
-        """
+        """Seed the working state with a minimum-norm estimate."""
         # MNE-based seeds (re-read by _solve on every Champagne solve)
         self._init_gamma = []
         self._init_sigma_b = []
@@ -307,7 +255,7 @@ class Solver:
             data: RegressionData,
             mu: float,
             tol: float,
-            history: FitHistory,
+            history: ChampLassoHistory,
             verbose: bool = False,
     ) -> None:
         """Run the alternating FASTA/Champagne optimization for regularization ``mu``.
@@ -316,15 +264,14 @@ class Solver:
         requested per-iteration quantities into ``history``.
         """
         logger = logging.getLogger(__name__)
-        self.mu = mu
         self._initialize(data)
 
         if self.forward.space:
-            def g_funct(x): return g_group(x, self.mu)
-            def prox_g(x, t): return proxg_group_opt(x, self.mu * t)
+            def g_funct(x): return g_group(x, mu)
+            def prox_g(x, t): return proxg_group_opt(x, mu * t)
         else:
-            def g_funct(x): return g(x, self.mu)
-            def prox_g(x, t): return shrink(x, self.mu * t)
+            def g_funct(x): return g(x, mu)
+            def prox_g(x, t): return shrink(x, mu * t)
 
         theta = self.theta
         myname = current_process().name
@@ -400,7 +347,7 @@ class Solver:
 
         Runs an unregularized warm covariance solve and returns the magnitude of
         the smooth objective's gradient at ``theta = 0``, used to calibrate the
-        regularization grid (see :func:`find_mu_range`). Independent of ``mu``.
+        automatic regularization grid. Independent of ``mu``.
         """
         self._initialize(data)
         self._solve(data, self.theta, n_iterc=30)
@@ -422,7 +369,135 @@ class Solver:
             return sqrt(num.sum() / den.sum())
 
 
-def find_mu_range(gradient: FloatArray, p: float = 99.0) -> FloatArray:
-    """Regularization grid spanning two decades up to the gradient's p-th percentile."""
-    hi = log10(np.percentile(gradient, p))
-    return np.logspace(hi - 2, hi, 7)
+@dataclass(frozen=True)
+class ChampLassoFit(SolverFit):
+    """Fitted state produced by :class:`ChampLasso`."""
+
+    history: ChampLassoHistory
+    gamma: list
+    sigma_b: list[FloatArray]
+
+    def evaluate_objective(
+            self,
+            forward: ForwardModel,
+            data: RegressionData,
+            return_weighted_l2: bool = False,
+    ) -> float | tuple[float, float]:
+        """Evaluate the ChampLasso likelihood objective on whitened data."""
+        return _evaluate_objective(
+            forward, self.theta, self.sigma_b, data, return_weighted_l2,
+        )
+
+
+@dataclass(frozen=True)
+class ChampLasso(Solver):
+    """Alternating FASTA/Champagne solver for NCRF estimation.
+
+    Parameters
+    ----------
+    mu
+        Regularizer parameter. A number fits one model, a sequence selects among
+        an explicit grid with cross-validation, and ``'auto'`` derives and
+        cross-validates a grid from the data (default).
+    n_iter
+        Number of outer iterations of the algorithm.
+    n_iterc
+        Number of Champagne iterations within each outer iteration.
+    n_iterf
+        Number of FASTA iterations within each outer iteration.
+    tol
+        Tolerance factor deciding stopping criterion for the overall algorithm.
+        Iteration stops when ``norm(trf_new - trf_old)/norm(trf_old) < tol``.
+    store_theta
+        Store the ``theta`` estimate after each outer iteration in the solver
+        history (default ``False``).
+    store_gamma
+        Store the source covariances after each outer iteration (default ``False``).
+    store_sigma_b
+        Store the data covariances after each outer iteration (default ``False``).
+
+    """
+
+    mu: MuArg = 'auto'
+    n_iter: int = 30
+    n_iterc: int = 10
+    n_iterf: int = 100
+    tol: float = 1e-5
+    store_objective: bool = True
+    store_residual: bool = True
+    store_theta: bool = False
+    store_gamma: bool = False
+    store_sigma_b: bool = False
+
+    def candidates(
+            self,
+            forward: ForwardModel,
+            data: RegressionData,
+    ) -> tuple[ChampLasso, ...]:
+        """Resolve ``mu`` into fixed solver configurations."""
+        if isinstance(self.mu, float):
+            return self,
+        elif isinstance(self.mu, str):
+            if self.mu == 'auto':
+                return self.auto_candidates(forward, data)
+            raise ValueError(f"mu={self.mu!r}: expected a number, a sequence of numbers, or 'auto'")
+        elif isinstance(self.mu, Real) and not isinstance(self.mu, bool):
+            return replace(self, mu=float(self.mu)),
+
+        try:
+            values = tuple(self.mu)
+        except TypeError:
+            raise TypeError(
+                f"mu={self.mu!r}: expected a number, a sequence of numbers, "
+                "or 'auto'",
+            ) from None
+        if not values:
+            raise ValueError("mu grid must contain at least one value")
+        if any(isinstance(value, (bool, str, bytes)) for value in values):
+            raise TypeError(f"mu={self.mu!r}: all grid values must be numbers")
+        try:
+            values = tuple(float(value) for value in values)
+        except (TypeError, ValueError):
+            raise TypeError(
+                f"mu={self.mu!r}: all grid values must be numbers",
+            ) from None
+        return tuple(replace(self, mu=value) for value in values)
+
+    def solve(
+            self,
+            forward: ForwardModel,
+            data: RegressionData,
+            *,
+            verbose: bool = False,
+    ) -> ChampLassoFit:
+        """Estimate NCRF weights for one prepared, whitened dataset."""
+        if not isinstance(self.mu, Real) or isinstance(self.mu, bool):
+            raise ValueError("ChampLasso.solve() requires a fixed numeric mu; use NCRF.fit() to resolve a grid or mu='auto'")
+        mu = float(self.mu)
+        history = ChampLassoHistory(
+            store_objective=self.store_objective,
+            store_residual=self.store_residual,
+            store_theta=self.store_theta,
+            store_gamma=self.store_gamma,
+            store_sigma_b=self.store_sigma_b,
+        )
+        state = _ChampLassoState(forward, self.n_iter, self.n_iterc, self.n_iterf)
+        state.run(data, mu, self.tol, history, verbose)
+        return ChampLassoFit(
+            theta=state.theta,
+            history=history,
+            gamma=state.Gamma,
+            sigma_b=state.Sigma_b,
+        )
+
+    def auto_candidates(
+            self,
+            forward: ForwardModel,
+            data: RegressionData,
+    ) -> tuple[ChampLasso, ...]:
+        """Derive the standard seven-value ``mu`` grid from the data."""
+        state = _ChampLassoState(forward, self.n_iter, self.n_iterc, self.n_iterf)
+        gradient = state.gradient(data)
+        hi = log10(np.percentile(gradient, 99.0))
+        mus = np.logspace(hi - 2, hi, 7)
+        return tuple(replace(self, mu=float(mu)) for mu in mus)

@@ -18,8 +18,11 @@ from eelbrain import NDVar, Sensor
 import mne
 import numpy as np
 
+from ._crossvalidation import CrossValidation
 from ._data import RegressionData
 from ._model import NCRF, NCRFResult
+from ._solvers import ChampLasso, Solver
+from ._typing import MuArg
 
 
 DEFAULT_MUs = np.logspace(-3, -1, 7)
@@ -27,7 +30,6 @@ NormalizationValue: TypeAlias = NDVar | float
 StimulusInput: TypeAlias = NDVar | Sequence[NDVar]
 TrialStimulusInput: TypeAlias = StimulusInput | Sequence[StimulusInput]
 MegInput: TypeAlias = NDVar | Sequence[NDVar]
-MuInput: TypeAlias = float | Sequence[float] | str
 
 
 def _handle_noise_channels(
@@ -81,7 +83,7 @@ def fit_ncrf(
         n_iterf: int = 100,
         normalize: bool | str = False,
         in_place: bool = False,
-        mu: MuInput = 'auto',
+        mu: MuArg = 'auto',
         tol: float = 1e-3,
         verbose: bool = False,
         n_splits: int = 3,
@@ -89,9 +91,7 @@ def fit_ncrf(
         use_ES: bool = False,
         basis_std: float = 0.0085,
         do_post_normalization: bool = True,
-        store_theta: bool = False,
-        store_gamma: bool = False,
-        store_sigma_b: bool = False,
+        solver: Solver | None = None,
 ) -> NCRFResult:
     r"""One shot function for cortical TRF localization.
 
@@ -167,13 +167,11 @@ def fit_ncrf(
     do_post_normalization
         Scales covariate matrices of different predictor variables by spectral norms to
         equalize their spectral spread (=1). (default ``True``)
-    store_theta
-        Store the ``theta`` estimate after each outer iteration in the result's
-        :class:`FitHistory` (default ``False``).
-    store_gamma
-        Store the source covariances after each outer iteration (default ``False``).
-    store_sigma_b
-        Store the data covariances after each outer iteration (default ``False``).
+    solver
+        Solver configuration. When supplied, ``mu`` and the iteration arguments
+        are ignored; configure them on the solver. ``n_splits``, ``n_workers``,
+        and ``use_ES`` still configure selection when the solver exposes multiple
+        candidates.
 
     Returns
     -------
@@ -287,11 +285,16 @@ def fit_ncrf(
     if lead_field.get_dim('sensor') != ds.sensor_dim:
         lead_field = lead_field.sub(sensor=ds.sensor_dim)
 
-    estimator = NCRF(lead_field, noise_cov, n_iter=n_iter, n_iterc=n_iterc, n_iterf=n_iterf)
+    estimator = NCRF(lead_field, noise_cov)
+    if solver is None:
+        solver = ChampLasso(mu=mu, n_iter=n_iter, n_iterc=n_iterc, n_iterf=n_iterf, tol=tol)
+
     return estimator.fit(
-        ds, mu=mu, tol=tol, verbose=verbose, n_splits=n_splits,
-        n_workers=n_workers, use_ES=use_ES, compute_explained_variance=True,
-        store_theta=store_theta, store_gamma=store_gamma, store_sigma_b=store_sigma_b,
+        ds,
+        solver,
+        cv=CrossValidation(n_splits, n_workers, use_ES),
+        verbose=verbose,
+        compute_explained_variance=True,
     )
 
 

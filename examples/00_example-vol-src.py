@@ -257,7 +257,7 @@ lf = eelbrain.load.mne.forward_operator(fwd, src='vol-10',
 #    1) For this example, we use a fixed regularization parameter (``mu``).
 #    For a real experiment, the optimal ``mu`` can be determined by
 #    cross-validation (set ``mu='auto'``, which is the default).
-#    The optimal ``mu`` will then be stored in ``result.model.mu``
+#    The optimal ``mu`` will then be stored in ``result.solver.mu``
 #    (this is how the ``mu`` used here was determined).
 #
 #    2) The example forces the estimation to stop after fewer iterations than
