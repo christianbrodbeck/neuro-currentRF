@@ -2,7 +2,7 @@
 
 ``RegressionData`` turns Eelbrain objects into normalized numeric arrays with a
 stable internal layout that the solver consumes directly. The layout itself is
-described by the :class:`~ncrf._design.TRFDesign` it carries.
+described by the ``TRFDesign`` it carries.
 """
 from __future__ import annotations
 
@@ -96,10 +96,10 @@ class RegressionData:
         ``sqrt(n_times)`` of the first segment; used by :meth:`timeslice`
         to rescale sub-segments consistently.
     design
-        The :class:`~ncrf._design.TRFDesign` that ``covariates`` were built with.
-        Its :attr:`~ncrf._design.TRFDesign.stim_normalization` records the scaling
-        that was applied to ``covariates``, and is what lets a model fitted on one
-        dataset predict another.
+        The ``TRFDesign`` that ``covariates`` were built with. Its
+        ``stim_normalization`` records the scaling that was applied to
+        ``covariates``, and is what lets a model fitted on one dataset predict
+        another.
     sensor_dim
         Sensor dimension shared by all MEG segments.
     is_whitened
@@ -167,7 +167,7 @@ class RegressionData:
         post_normalize
             If ``True`` (default), equalize covariate scales across predictor
             blocks by dividing each block by its average spectral norm; the factors
-            are recorded on the resulting :attr:`design`. Has no effect when there
+            are recorded on the resulting ``design``. Has no effect when there
             is only one covariate channel, where the scaling would just be absorbed
             into the coefficients. Use ``False`` when preparing data for prediction
             with a model that was fit on a different dataset, so that the model can

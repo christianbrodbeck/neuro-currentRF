@@ -1,20 +1,53 @@
-API Reference
+API reference
 =============
 
-The ``ncrf`` module provide functions for fitting NCRFs from data.
+The public ``ncrf`` API provides a convenience function as well as composable
+data, estimator, solver, model, and result objects.
 
 .. currentmodule:: ncrf
+
+High-level interface
+--------------------
 
 .. autosummary::
     :toctree: generated/
 
     fit_ncrf
-    NCRF
-    NCRFModel
+
+Fitting pipeline
+----------------
+
+.. autosummary::
+    :toctree: generated/
+
     RegressionData
-    Solver
-    SolverFit
-    ChampLasso
+    NCRFEstimator
     CrossValidation
+
+Models and results
+------------------
+
+.. autosummary::
+    :toctree: generated/
+
+    NCRF
+    NCRFResult
+
+Solvers
+-------
+
+.. autosummary::
+    :toctree: generated/
+
+    Solver
+    SolverResult
+    ChampLasso
+
+Metrics
+-------
+
+.. autosummary::
+    :toctree: generated/
+
     explained_variance
     l2_error

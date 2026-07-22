@@ -1,31 +1,78 @@
-.. NCRF documentation master file, created by
-   sphinx-quickstart on Wed Mar 19 12:54:12 2025.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+Neuro-currentRF
+===============
 
-NCRF documentation
-==================
+Neuro Current Response Functions (NCRFs) are cortical temporal response
+functions (TRFs) directly estimated from continuous M/EEG data.
+The NCRF framework combines the temporal response model with a
+distributed forward model and estimates the source-space filters with a
+Bayesian optimization algorithm :cite:`das2020neuro`.
 
-The magnetoencephalography (MEG) response to continuous auditory stimuli, such as speech, is commonly described using a linear filter, the auditory temporal response function (TRF). Though components of the sensor level TRFs have been well characterized, the cortical distributions of the underlying neural responses are not well-understood. In our recent work, we provide a unified framework for determining the TRFs of neural sources directly from the MEG data, by integrating the TRF and distributed forward  source models into one, and casting the joint estimation task as a Bayesian optimization problem. Though the resulting problem emerges as non-convex, we propose efficient solutions that leverage recent advances in evidence maximization. For more details please refer to :cite:`das2020neuro`.
+The simplest entry point is :func:`ncrf.fit_ncrf`, which accepts Eelbrain
+:class:`~eelbrain.NDVar` objects, prepares the regression design, selects a
+regularization value when needed, and returns a structured fit report::
 
-This repository contains the implementation of our direct TRF estimation algorithm in python.
+    from ncrf import fit_ncrf
+
+    result = fit_ncrf(
+        meg,
+        stim,
+        lead_field,
+        noise,
+        mu="auto",
+        tstop=1.0,
+        n_splits=3,
+    )
+    trf = result.model.h
+    training_scores = result.scores
+
+The fitted :class:`~ncrf.NCRF` in ``result.model`` is independent of the
+optimizer that produced it. It can predict or evaluate another compatible
+:class:`~ncrf.RegressionData` dataset. Optimization diagnostics remain in
+``result.solver_fit``, and cross-validation results can be inspected with
+:meth:`~ncrf.NCRFResult.cv_info`.
+
+Architecture
+------------
+
+The package separates the fitting pipeline into components with distinct
+responsibilities:
+
+* :class:`~ncrf.RegressionData` prepares and stores the sensor data, lagged
+  basis-projected covariates, and the metadata needed to reconstruct TRFs.
+* :class:`~ncrf.NCRFEstimator` owns the forward model and whitening transform,
+  selects a solver candidate through cross-validation, and runs the final fit.
+* :class:`~ncrf.Solver` implementations, such as :class:`~ncrf.ChampLasso`,
+  define optimization and candidate-selection behavior.
+* :class:`~ncrf.NCRFResult` separates the reusable :class:`~ncrf.NCRF` model
+  from the selected solver, solver-specific fit state, scores, and diagnostics.
+
+See :doc:`architecture` for the data flow, the lower-level fitting API, and how
+to evaluate a fitted model on new data.
 
 .. toctree::
+   :caption: User guide
    :maxdepth: 1
 
    installing
+   architecture
    changes
    development
    references
 
-
 .. toctree::
+   :caption: Examples and API
    :maxdepth: 2
 
    auto_examples/index
    api/index
 
+Project
+-------
 
-Neuro-currentRF is maintained by Proloy Das at National Brain Research Centre, Gurgaon and Christian Brodbeck at McMaster University. Current funding: NIH 1R01MH132660-01A1 (2024-); Past funding:  NSF 1552946; NSF 1734892;  DAPRA N6600118240224; NIH R01-DC-014085 (2016-2020).
+The NCRF package is maintained by Proloy Das at National Brain Research Centre,
+Gurgaon and Christian Brodbeck at McMaster University. Current funding: NIH
+1R01MH132660-01A1 (2024-). Past funding: NSF 1552946; NSF 1734892; DARPA
+N6600118240224; NIH R01-DC-014085 (2016-2020).
 
-This repository is free software, covered by the MIT License. However since they have been mainly developed for academic use, the author would appreciate being given academic credit for it. Whenever you use this software to produce a publication or talk, please cite the appropiate references :cite:`das2020neuro`.
+This repository is free software covered by the MIT License. When using it for
+a publication or talk, please cite :cite:`das2020neuro`.

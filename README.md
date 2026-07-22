@@ -22,7 +22,7 @@ solver = ChampLasso(mu='auto', n_iter=30, n_iterc=10, n_iterf=100)
 result = estimator.fit(data, solver)
 ```
 
-All solvers return a common predictive `NCRFModel`; training explained variance
+All solvers return a common predictive `NCRF` in `result.model`; training explained variance
 is available as `result.scores['explained_variance']`. To score other data,
 `result.model.evaluate(data, [explained_variance, l2_error])` predicts once and
 returns all requested metrics. Solver-specific state is available as

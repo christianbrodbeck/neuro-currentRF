@@ -1,9 +1,9 @@
-"""The NCRF estimator, its fitted model, and the fit report.
+"""The NCRF estimator, reusable fitted model, and fit report.
 
-:class:`NCRF` drives the fit (regularization selection and optimization),
-:class:`NCRFModel` is the frozen, reusable result that can be applied to new
-data, and :class:`NCRFResult` bundles the model with training-set evaluation
-and provenance.
+:class:`NCRFEstimator` owns forward-model preparation, candidate selection, and
+fitting. :class:`NCRF` contains the resulting coefficients and prediction API,
+independent of the solver that produced them. :class:`NCRFResult` bundles that
+model with training scores and solver-specific provenance.
 """
 # Authors: Proloy Das <email:proloyd94@gmail.com>
 #          Christian Brodbeck <email:brodbecc@mcmaster.ca>
@@ -27,21 +27,22 @@ from ._typing import FloatArray
 
 
 class NCRF:
-    """Frozen, fitted NCRF model that can be applied to arbitrary datasets.
+    """Fitted NCRF model that can be applied to compatible datasets.
 
     Holds the estimated weights together with the forward model and stimulus
-    metadata needed to evaluate (and, in the future, predict) on any
-    :class:`RegressionData`.  Reusable and picklable; produced by :meth:`NCRF.fit`
-    and exposed as :attr:`NCRFResult.model`.
+    design needed to reconstruct response functions, predict whitened sensor
+    data, and evaluate predictions. Reusable and picklable; produced by
+    :meth:`NCRFEstimator.fit` and exposed as :attr:`NCRFResult.model`.
 
     Attributes
     ----------
     forward
-        The :class:`ForwardModel` (lead field, whitening filter, source/sensor/space).
+        The internal forward-model state (lead field, whitening filter, and
+        source, sensor, and orientation dimensions).
     theta
-        NCRF coefficients over the Gabor basis; the frozen weights.
+        Fitted NCRF coefficients over the Gaussian basis.
     tstart, tstep, tstop, basis_std
-        TRF timing and Gaussian-basis width.
+        TRF timing and Gaussian-basis width, delegated to the stored design.
     """
     def __init__(
             self,
@@ -111,7 +112,25 @@ class NCRF:
             *,
             accept_whitening: bool = False,
     ) -> list[FloatArray]:
-        """Predict whitened sensor-space data for each segment."""
+        """Predict whitened sensor-space data for each segment.
+
+        Parameters
+        ----------
+        data
+            Prepared dataset with a design compatible with the training data.
+            Data prepared for prediction should normally use
+            ``post_normalize=False`` so that this model can apply the training
+            normalization.
+        accept_whitening
+            Set to ``True`` only when this model's whitening filter was already
+            applied to ``data``.
+
+        Returns
+        -------
+        list
+            Predicted arrays, one per segment, each shaped
+            ``(n_sensors, n_times)``.
+        """
         data = self._whiten(data, accept_whitening)
         theta = self._theta_for(data)
         return [self._predict_whitened(theta, covariate) for _, covariate in data]
@@ -131,11 +150,13 @@ class NCRF:
         Parameters
         ----------
         data
-            Dataset to predict and score.
+            Prepared dataset with a design compatible with the training data.
+            Data prepared for evaluation should normally use
+            ``post_normalize=False``.
         metrics
-            Metric functions from :mod:`ncrf._metrics`, each mapping observed and
-            predicted per-segment arrays to a scalar. Results are keyed by
-            function name.
+            Metric functions such as :func:`~ncrf.explained_variance`, each
+            mapping observed and predicted per-segment arrays to a scalar.
+            Results are keyed by function name.
         accept_whitening
             Set to ``True`` only when the model's whitening filter was already
             applied to ``data``.
@@ -219,7 +240,7 @@ class NCRF:
 class NCRFEstimator:
     """Estimator for neuro-current response functions (NCRFs).
 
-    Construct with a forward model and noise covariance, then call :meth:`fit`
+    Construct with a lead field and noise covariance, then call :meth:`fit`
     with a :class:`RegressionData` instance to obtain an :class:`NCRFResult`.
 
     Parameters
@@ -233,12 +254,11 @@ class NCRFEstimator:
 
     Notes
     -----
-    Usage:
-
-    1. Use :meth:`RegressionData.from_data` to construct a prepared dataset
-       from MEG and stimulus segments.
-    2. Initialize :class:`NCRF` with the lead field and noise covariance.
-    3. Call :meth:`NCRF.fit` with the data and a configured :class:`Solver`.
+    Use :meth:`RegressionData.from_data` to prepare the M/EEG and predictor
+    segments, initialize this estimator with the matching forward inputs, and
+    call :meth:`fit` with a configured :class:`Solver`. The returned
+    :class:`NCRFResult` keeps the reusable model separate from solver-specific
+    fitted state.
     """
     def __init__(
             self,
@@ -280,17 +300,20 @@ class NCRFEstimator:
         Parameters
         ----------
         data
-            M/EEG data and the corresponding stimulus variables. Not mutated.
+            Prepared M/EEG data and corresponding basis-projected covariates.
+            The input object is not mutated.
         solver
             Solver configuration. Solvers that expose multiple candidates are
             selected through cross-validation before the final fit.
         cv
-            Cross-validation configuration. The default is used when ``solver``
-            exposes multiple candidates and ``cv`` is omitted.
+            Cross-validation configuration. A default configuration is used
+            when ``solver`` exposes multiple candidates and ``cv`` is omitted;
+            ignored when the solver exposes a single candidate.
         verbose
             If set True prints intermediate values of the cost functions (default ``False``).
         compute_explained_variance
-            Compute voxel-wise explained variance.
+            Compute the source-wise explained-variance diagnostic and store it
+            on the result.
         accept_whitening
             Accept pre-whitened data. This is intended for internal workflows
             that slice an already-whitened dataset, such as cross-validation.
@@ -298,7 +321,8 @@ class NCRFEstimator:
         Returns
         -------
         NCRFResult
-            The fitted model and estimated cortical TRFs.
+            Fitted model, selected solver, solver state, training scores, and
+            optional cross-validation and source-wise diagnostics.
         """
         data = data.whiten(
             self.forward.whitening_filter,
@@ -337,16 +361,17 @@ class NCRFEstimator:
 
 
 class NCRFResult:
-    """Report produced by :meth:`NCRF.fit`.
+    """Report produced by :meth:`NCRFEstimator.fit`.
 
-    Bundles the fitted :class:`NCRFModel` with the training-set evaluation and the
+    Bundles the fitted :class:`NCRF` with the training-set evaluation and the
     fitting provenance. Model-level predictive quantities live on :attr:`model`;
     solver-specific state lives on :attr:`solver_fit`.
 
     Attributes
     ----------
     model
-        The fitted :class:`NCRFModel` (frozen weights + prediction/evaluation API).
+        The fitted :class:`NCRF` with TRF reconstruction, prediction, and
+        evaluation methods.
     solver
         Immutable solver configuration used for the fit.
     solver_fit
@@ -354,14 +379,19 @@ class NCRFResult:
     scores
         Prediction metrics on the training data, keyed by name: the
         solver-independent model metrics plus whatever the solver contributes
-        through :meth:`SolverFit.score` (for ChampLasso, ``cross_fit`` and
+        through :meth:`SolverResult.score` (for ChampLasso, ``cross_fit`` and
         ``weighted_l2_error``). For an arbitrary dataset use
-        :meth:`model.evaluate`.
+        :meth:`NCRF.evaluate`.
     voxelwise_explained_variance
         Source-wise contributions to explained variance on the training data
         (``None`` unless requested at fit time).
     history
         Solver-specific per-iteration history, when available.
+
+    Notes
+    -----
+    Cross-validation scores are retained when candidate selection runs and are
+    exposed through :meth:`cv_info` and :meth:`cv_mu`.
     """
     def __init__(
             self,

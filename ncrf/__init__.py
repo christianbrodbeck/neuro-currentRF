@@ -1,8 +1,9 @@
-"""Public package surface for the NCRF fitting pipeline.
+"""Public API for fitting and applying neuro-current response functions.
 
-The package is organized around a small top-level API: :func:`fit_ncrf`
-coordinates input normalization and model fitting, while :class:`NCRF`,
-:class:`Solver`, and :class:`RegressionData` expose the lower-level workflow.
+:func:`fit_ncrf` provides the complete convenience workflow. The component API
+separates prepared :class:`RegressionData`, the :class:`NCRFEstimator` fitting
+orchestrator, pluggable :class:`Solver` configurations, the reusable fitted
+:class:`NCRF`, and the accompanying :class:`NCRFResult` report.
 """
 
 from ._data import RegressionData

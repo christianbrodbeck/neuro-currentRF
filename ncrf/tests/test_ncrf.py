@@ -57,7 +57,7 @@ def test_ncrf():
     # 1 stimulus
     result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, normalize='l1', mu=0.0019444, n_iter=3, n_iterc=3,
                       n_iterf=10, do_post_normalization=False)
-    # the fitted model is a reusable NCRFModel
+    # the fitted model is a reusable NCRF
     assert isinstance(result.model, NCRF)
     # check residual and explained var
     np.testing.assert_allclose(result.scores['explained_variance'], 0.00641890144769941, rtol=0.001)

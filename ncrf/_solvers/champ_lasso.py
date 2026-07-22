@@ -494,7 +494,11 @@ class ChampLasso(Solver):
         Store the source covariances after each outer iteration (default ``False``).
     store_sigma_b
         Store the data covariances after each outer iteration (default ``False``).
-
+    store_objective
+        Store the objective after each outer iteration (default ``True``).
+    store_residual
+        Store the relative coefficient change after each outer iteration
+        (default ``True``).
     """
 
     criterion = 'cross_fit'
@@ -609,7 +613,7 @@ class ChampLasso(Solver):
     ) -> ChampLassoResult:
         """Estimate NCRF weights for one prepared, whitened dataset."""
         if not _is_number(self.mu):
-            raise ValueError("ChampLasso.solve() requires a fixed numeric mu; use NCRF.fit() to resolve a grid or mu='auto'")
+            raise ValueError("ChampLasso.solve() requires a fixed numeric mu; use NCRFEstimator.fit() to resolve a grid or mu='auto'")
         mu = float(self.mu)
         history = ChampLassoHistory(**{field: getattr(self, field) for field in _STORE_FIELDS})
         state = _ChampLassoState(forward, self.n_iter, self.n_iterc, self.n_iterf)

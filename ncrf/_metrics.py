@@ -3,7 +3,7 @@
 Each metric maps observed and predicted whitened sensor data to a scalar. Metrics
 are pure functions of the two sequences of per-segment arrays and know nothing
 about the model that produced the predictions, so a caller can predict once and
-evaluate several metrics on the same predictions; see :meth:`NCRFModel.evaluate`.
+evaluate several metrics on the same predictions; see :meth:`NCRF.evaluate`.
 """
 from __future__ import annotations
 

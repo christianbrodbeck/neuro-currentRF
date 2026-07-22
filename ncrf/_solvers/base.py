@@ -4,7 +4,7 @@ A solver is immutable configuration that estimates NCRF weights (:meth:`Solver.s
 Solvers that expose more than one candidate configuration (:meth:`Solver.candidates`)
 are selected by cross-validation, which is driven entirely through the hooks below:
 
-- :meth:`SolverFit.score` contributes solver-specific scores.
+- :meth:`SolverResult.score` contributes solver-specific scores.
 - :attr:`Solver.criterion` names the score to minimize.
 - :meth:`Solver.select` picks the winner, :meth:`Solver.refine` may extend the search.
 
@@ -29,7 +29,18 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, repr=False)
 class SolverResult:
-    """Result of one solver execution; concrete fits can add diagnostics."""
+    """Fitted state from one solver execution.
+
+    The generic result contains the coefficient matrix consumed by
+    :class:`~ncrf.NCRF`. Concrete solvers can add optimizer-specific state,
+    diagnostics, and scores without coupling those details to the predictive
+    model.
+
+    Parameters
+    ----------
+    theta
+        Fitted source-space coefficients over the regression design basis.
+    """
 
     theta: FloatArray
 
@@ -46,13 +57,19 @@ class SolverResult:
 
         Merged with the solver-independent model metrics wherever a fit is
         scored: on the training data in :attr:`NCRFResult.scores`, and per fold
-        in :attr:`CVResult.scores`. Keys must not collide with the metric names.
+        in ``CVResult.scores``. Keys must not collide with the metric names.
         """
         return {}
 
 
 class Solver(ABC):
-    """Immutable configuration for an algorithm that estimates NCRF weights."""
+    """Configuration contract for an algorithm that estimates NCRF weights.
+
+    :class:`~ncrf.NCRFEstimator` asks a solver for fixed candidate
+    configurations, cross-validates them when necessary, and calls :meth:`solve`
+    for the final fit. Implementations can override the selection and refinement
+    hooks while returning a common :class:`SolverResult` interface.
+    """
 
     #: Key in :attr:`CVResult.scores` minimized when selecting among candidates.
     criterion: str = 'l2_error'

@@ -47,6 +47,8 @@ nitpick_ignore = [
     # NumPy's intersphinx inventory resolves ndarray/dtype, but not this scalar
     # class when Sphinx expands npt.NDArray[np.float64] in dataclass signatures.
     ("py:class", "numpy.float64"),
+    # Internal metadata type exposed by the RegressionData dataclass signature.
+    ("py:class", "ncrf._trf_design.TRFDesign"),
 ]
 
 # A list of ignored prefixes for module index sorting.

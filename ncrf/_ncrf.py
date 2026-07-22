@@ -2,7 +2,8 @@
 
 This module is the public entrypoint for the library. It normalizes the
 different supported input layouts, derives stimulus scaling metadata, prepares
-:class:`RegressionData`, and then delegates optimization to :class:`NCRF`.
+:class:`RegressionData`, and then delegates candidate selection and fitting to
+:class:`NCRFEstimator`.
 """
 # Authors: Proloy Das <email:proloyd94@gmail.com>
 #          Christian Brodbeck <email:brodbecc@mcmaster.ca>
@@ -155,7 +156,8 @@ def fit_ncrf(
     n_splits
         Number of cross-validation folds. By default it uses 3-fold cross-validation.
     n_workers
-        Number of workers to spawn for cross-validation. If None, it will use ``cpu_count/2``.
+        Number of worker processes for cross-validation. If ``None``, use the
+        library's configured default.
     use_ES
         Use estimation stability criterion :cite:`limEstimationStabilityCrossValidation2016` to
         choose the best ``mu``. (False, by default)
@@ -177,10 +179,10 @@ def fit_ncrf(
     -------
     :class:`NCRFResult`
         Fit report. The fitted, reusable model is :attr:`NCRFResult.model` (an
-        :class:`NCRFModel`); the response functions are ``result.model.h`` /
+        :class:`NCRF`); the response functions are ``result.model.h`` /
         ``result.model.h_scaled``, and metrics for an arbitrary dataset are
         ``result.model.evaluate(data)``. Training-set metrics (``scores``,
-        ``residual``, ``voxelwise_explained_variance``), ``history`` and
+        ``voxelwise_explained_variance``), solver state, ``history``, and
         ``cv_info()`` live on the result itself.
 
     Examples

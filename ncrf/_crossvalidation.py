@@ -1,7 +1,7 @@
 """Cross-validation helpers used by the NCRF estimator.
 
-The core model owns fitting and scoring logic, while this module supplies the
-execution machinery for sweeping regularization values and splitting time-series
+The estimator owns fitting orchestration, while this module supplies the
+execution machinery for evaluating solver candidates and splitting time-series
 data into train/test windows.
 """
 
@@ -107,7 +107,7 @@ class CVResult:
         Mean held-out scores across folds. Always contains the solver-independent
         model metrics (``explained_variance``, ``l2_error``) and
         ``estimation_stability``; solvers add their own through
-        :meth:`SolverFit.score`.
+        :meth:`SolverResult.score`.
     """
 
     solver: Solver
@@ -162,7 +162,7 @@ def crossvalidate(
     Parameters
     ----------
     estimator
-        The :class:`NCRF` estimator to validate. It must be picklable so that it
+        The :class:`NCRFEstimator` to validate. It must be picklable so that it
         can be sent to worker processes.
     data
         M/EEG data and the corresponding stimulus variables.
@@ -172,7 +172,7 @@ def crossvalidate(
         number of folds for cross-validation.
     n_workers
         Number of workers to use for cross-validation.
-        ``None`` to use ``cpu_count/2`` (default).
+        ``None`` to use the library's configured default.
         ``0`` to run without :mod:`multiprocessing`.
 
     Returns
