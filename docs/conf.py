@@ -44,8 +44,9 @@ nitpicky = True
 nitpick_ignore = [
     ("py:obj", "optional"),
     ("py:obj", "NCRF"),
-    # NumPy's intersphinx inventory resolves ndarray/dtype, but not this scalar
-    # class when Sphinx expands npt.NDArray[np.float64] in dataclass signatures.
+    # NumPy's intersphinx inventory resolves ndarray/dtype, but not these
+    # classes when Sphinx expands npt.NDArray[np.float64] in signatures.
+    ("py:class", "numpy._typing._array_like.NDArray"),
     ("py:class", "numpy.float64"),
     # Internal metadata type exposed by the RegressionData dataclass signature.
     ("py:class", "ncrf._trf_design.TRFDesign"),
