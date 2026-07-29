@@ -55,8 +55,7 @@ def test_ncrf():
     emptyroom = load('emptyroom')
 
     # 1 stimulus
-    result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, normalize='l1', mu=0.0019444, n_iter=3, n_iterc=3,
-                      n_iterf=10, do_post_normalization=False)
+    result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='l1', mu=0.0019444, n_iter=3, n_iterc=3, n_iterf=10)
     # the fitted model is a reusable NCRF
     assert isinstance(result.model, NCRF)
     # check residual and explained var
@@ -65,8 +64,8 @@ def test_ncrf():
     np.testing.assert_allclose(result.scores['cross_fit'], 178.512, rtol=0.001)
     # check scaling
     stim_baseline = stim.mean()
-    np.testing.assert_equal(result.model._design.stim_baseline[0], stim_baseline)
-    np.testing.assert_equal(result.model._design.stim_scaling[0], (stim - stim_baseline).abs().mean())
+    np.testing.assert_equal(result.model.design.stim_baseline[0], stim_baseline)
+    np.testing.assert_equal(result.model.design.stim_scaling[0], (stim - stim_baseline).abs().mean())
     np.testing.assert_allclose(result.model.h.norm('time').norm('source').norm('space'), 6.601677e-10, rtol=0.001)
     # by default, objective/residual accumulate but trajectories are not stored
     assert len(result.history.objective) > 0
@@ -87,10 +86,7 @@ def test_ncrf():
 
     # test Gaussian basis standard deviation; also opt-in trajectory storage, which is configured on the solver
     solver = ChampLasso(mu=0.0019444, n_iter=1, n_iterc=1, n_iterf=1, store_theta=True, store_gamma=True, store_sigma_b=True)
-    result = fit_ncrf(
-        meg, stim, fwd, emptyroom, tstop=0.2, normalize='l1', solver=solver,
-        basis_std=0.050,
-    )
+    result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='spectral', solver=solver, basis_std=0.050)
     assert result.solver is solver
     assert set(result.scores) == {'explained_variance', 'l2_error', 'cross_fit', 'weighted_l2_error'}
     assert result.model.basis_std == 0.050
@@ -99,14 +95,13 @@ def test_ncrf():
     assert len(result.history.sigma_b) == 1
     assert all(theta.shape == result.model.theta.shape for theta in result.history.theta)
 
-    # 2 stimuli, one of them 2-d, normalize='l2'
+    # 2 stimuli, one of them 2-d, l2 normalization
     diff = stim.diff('time')
     stim2 = concatenate([diff.clip(0), diff.clip(max=0)], Categorial('rep', ['on', 'off']))
-    result = fit_ncrf(meg, [stim, stim2], fwd, emptyroom, tstop=[0.2, 0.2], normalize='l2', mu=0.0019444, n_iter=3,
-                      n_iterc=3, n_iterf=10, do_post_normalization=False)
+    result = fit_ncrf(meg, [stim, stim2], fwd, emptyroom, tstop=[0.2, 0.2], scale='l2', mu=0.0019444, n_iter=3, n_iterc=3, n_iterf=10)
     # check scaling
-    np.testing.assert_equal(result.model._design.stim_baseline[0], stim.mean())
-    np.testing.assert_equal(result.model._design.stim_scaling[0], stim.std())
+    np.testing.assert_equal(result.model.design.stim_baseline[0], stim.mean())
+    np.testing.assert_equal(result.model.design.stim_scaling[0], stim.std())
     np.testing.assert_allclose(result.model.h[0].norm('time').norm('source').norm('space'), 7.0088e-10, rtol=0.001)
 
     # 2 stimuli, different tstarts (-ve)
@@ -114,8 +109,7 @@ def test_ncrf():
     stim2 = concatenate([diff.clip(0), diff.clip(max=0)], Categorial('rep', ['on', 'off']))
     tstart = [-0.1, 0.1]
     tstop = [0.2, 0.3]
-    result = fit_ncrf(meg, [stim, stim2], fwd, emptyroom, tstart=tstart, tstop=tstop, normalize='l2', mu=0.0019444, n_iter=3,
-                      n_iterc=3, n_iterf=10, do_post_normalization=False)
+    result = fit_ncrf(meg, [stim, stim2], fwd, emptyroom, tstart=tstart, tstop=tstop, scale='l2', mu=0.0019444, n_iter=3, n_iterc=3, n_iterf=10)
 
     # check residual and explained var
     np.testing.assert_allclose(result.scores['explained_variance'], 0.021442823238037034, rtol=0.001)
@@ -124,17 +118,17 @@ def test_ncrf():
     np.testing.assert_equal(result.model.tstart, tstart)
     np.testing.assert_equal(result.model.tstop, tstop)
     # check scaling
-    np.testing.assert_equal(result.model._design.stim_baseline[0], stim.mean())
-    np.testing.assert_equal(result.model._design.stim_scaling[0], stim.std())
+    np.testing.assert_equal(result.model.design.stim_baseline[0], stim.mean())
+    np.testing.assert_equal(result.model.design.stim_scaling[0], stim.std())
     np.testing.assert_allclose(result.model.h[0].norm('time').norm('source').norm('space'), 6.6065539e-10, rtol=0.001)
 
     # cross-validation
-    result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, normalize='l1', mu='auto', n_iter=1, n_iterc=2, n_iterf=2, do_post_normalization=False)
+    result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='l1', mu='auto', n_iter=1, n_iterc=2, n_iterf=2)
     np.testing.assert_allclose(result.solver.mu, 0.0203, rtol=0.001)
     result.cv_info()
 
     # test without multiprocessing
-    result_no_mp = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, normalize='l1', mu='auto', n_iter=1, n_iterc=2, n_iterf=2, n_workers=0, do_post_normalization=False)
+    result_no_mp = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='l1', mu='auto', n_iter=1, n_iterc=2, n_iterf=2, n_workers=0)
     assert_dataobj_equal(result_no_mp.model.h, result.model.h)
 
 
@@ -183,7 +177,7 @@ def test_ncrf_shifted_nonzero_lags():
         n_iter=1,
         n_iterc=1,
         n_iterf=5,
-        do_post_normalization=False,
+        scale=None,
     )
     result_0 = fit_ncrf(
         meg_0, stim_segment, fwd, emptyroom, tstart=0, tstop=lag_stop, **fit_kwargs,

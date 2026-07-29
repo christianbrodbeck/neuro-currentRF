@@ -38,18 +38,21 @@ The high-level data flow is::
      reconstructed TRFs)   and diagnostics)
 
 :func:`~ncrf.fit_ncrf` is the convenience layer. It accepts the supported input
-layouts, computes optional stimulus scaling, creates
-:class:`~ncrf.RegressionData`, aligns the noise covariance and lead field to the
-data sensors, and delegates the fit to :class:`~ncrf.NCRFEstimator`.
+layouts, creates :class:`~ncrf.RegressionData`, aligns the noise covariance and
+lead field to the data sensors, and delegates the fit to
+:class:`~ncrf.NCRFEstimator`.
 
 Data and design
 ---------------
 
 :class:`~ncrf.RegressionData` contains numeric sensor arrays and lagged stimulus
 covariates projected into a Gaussian basis. Its design metadata records the TRF
-lags, basis, predictor dimensions and names, and normalization. The same compact
-metadata is stored on the fitted model so that ``NCRF.h`` can
-reconstruct labeled source-space TRFs without retaining the training dataset.
+lags, basis, predictor dimensions and names, and the normalization the covariates
+carry (``center`` and ``scale``, applied by
+:meth:`~ncrf.RegressionData.normalize`). The same compact metadata is stored on
+the fitted model, so that ``NCRF.h`` can reconstruct labeled source-space TRFs
+without retaining the training dataset, and so that the model can check that new
+data is on the scale it was fit on.
 
 The dataset does not own a forward model. :class:`~ncrf.NCRFEstimator` builds
 and owns that state from a lead field and sensor noise covariance. The estimator
@@ -117,17 +120,10 @@ deliberately separate lifetimes and responsibilities:
     Optional source-wise training diagnostic.
 
 To evaluate new data, prepare it with the same predictor layout, time step, and
-TRF settings. Disable post-normalization so that the fitted model can apply the
-training-data normalization::
+TRF settings, and apply the training-data normalization to it (see
+:doc:`guide`)::
 
-    test_data = RegressionData.from_data(
-        [test_meg],
-        [[test_stim]],
-        tstart=0.0,
-        tstop=1.0,
-        stim_is_single=True,
-        post_normalize=False,
-    )
+    test_data = test_data.normalize(result.model.design)
     predictions = result.model.predict(test_data)
     scores = result.model.evaluate(test_data)
 

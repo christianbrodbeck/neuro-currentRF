@@ -18,7 +18,75 @@ from scipy import linalg
 
 from ._trf_design import TRFDesign, stim_dimensions
 from ._repr import _count_repr
-from ._typing import FloatArray, IndexArray, TrialData
+from ._typing import FloatArray, IndexArray, ScaleArg, TrialData
+
+
+SCALES = ('l1', 'l2', 'spectral')
+
+
+def get_scaling(
+        stim: Sequence[Sequence[NDVar]],
+        stim_lens: Sequence[int],
+        scale: ScaleArg,
+) -> tuple[FloatArray, FloatArray | None]:
+    """Stimulus centering and scaling values, one per expanded covariate channel.
+
+    Parameters
+    ----------
+    stim
+        Stimulus lists, one per segment; each inner list contains one NDVar per
+        predictor.
+    stim_lens
+        Number of covariate channels contributed by each predictor.
+    scale
+        Compute the ``'l1'`` (mean absolute deviation) or ``'l2'`` (standard
+        deviation) scale of each predictor. Any other value yields ``None`` for the
+        scaling, since it is then not derived from the stimulus.
+
+    Returns
+    -------
+    baseline
+        The mean of each predictor.
+    scaling
+        The requested scale of each predictor, measured around its mean, or
+        ``None``.
+    """
+    by_predictor = list(zip(*stim))  # -> [[stim_1_trial_1, stim_1_trial_2, ...], ...]
+    n = sum(len(x.time) for x in by_predictor[0])
+    means = [sum(x.sum('time') for x in trials) / n for trials in by_predictor]
+    baseline = _channel_values(means, stim_lens)
+
+    # Scale by the variation around the mean, whether or not the covariates end up
+    # centered; the raw magnitude would let a predictor's offset dominate its scale
+    centered = [[x - mean for x in trials] for mean, trials in zip(means, by_predictor)]
+    if scale == 'l1':
+        scales = [sum(x.abs().sum('time') for x in trials) / n for trials in centered]
+    elif scale == 'l2':
+        scales = [(sum((x ** 2).sum('time') for x in trials) / n) ** 0.5 for trials in centered]
+    else:
+        return baseline, None
+    return baseline, _channel_values(scales, stim_lens)
+
+
+def _channel_values(
+        values: Sequence[NDVar | float],
+        stim_lens: Sequence[int],
+) -> FloatArray:
+    """Flatten one value per predictor into one value per covariate channel."""
+    return np.concatenate([x.x if isinstance(x, NDVar) else np.full(n, x) for x, n in zip(values, stim_lens)])
+
+
+def _pending(
+        current: FloatArray | None,
+        target: FloatArray | None,
+        name: str,
+) -> FloatArray | None:
+    """The ``target`` values still to be applied to covariates carrying ``current``."""
+    if current is None:
+        return target
+    elif target is None or not np.array_equal(current, target):
+        raise ValueError(f"data covariates already carry a different {name}; prepare the data with scale=None to apply a different normalization")
+    return None
 
 
 def covariate_from_stim(
@@ -96,10 +164,9 @@ class RegressionData:
         ``sqrt(n_times)`` of the first segment; used by :meth:`timeslice`
         to rescale sub-segments consistently.
     design
-        The ``TRFDesign`` that ``covariates`` were built with. Its
-        ``stim_normalization`` records the scaling that was applied to
-        ``covariates``, and is what lets a model fitted on one dataset predict
-        another.
+        The ``TRFDesign`` that ``covariates`` were built with. It also records the
+        normalization that was applied to ``covariates`` (see :meth:`normalize`),
+        which is what lets a model fitted on one dataset predict another.
     sensor_dim
         Sensor dimension shared by all MEG segments.
     is_whitened
@@ -125,12 +192,10 @@ class RegressionData:
             tstart: float | Sequence[float],
             tstop: float | Sequence[float],
             nlevel: int = 1,
-            baseline: Sequence[NDVar | float] | None = None,
-            scaling: Sequence[NDVar | float] | None = None,
+            scale: ScaleArg = 'spectral',
             stim_is_single: bool = False,
             basis_std: float = 0.0085,
             in_place: bool = False,
-            post_normalize: bool = True,
             pad_stim: bool = False,
     ) -> RegressionData:
         """Construct a dataset from MEG and stimulus NDVars.
@@ -152,42 +217,44 @@ class RegressionData:
         nlevel
             Density of Gabor basis atoms. Bigger → less dense. ``nlevel > 2``
             should be used with caution.
-        baseline
-            Per-predictor means to subtract from ``stim`` before covariate
-            construction.
-        scaling
-            Per-predictor scaling factors applied after baseline subtraction.
+        scale
+            Normalization applied to the covariates. Each predictor's mean is
+            subtracted, and each covariate channel is divided by one factor:
+
+            - ``'spectral'`` (default): the channel's average spectral norm, which
+              equalizes covariate scales across predictor variables.
+            - ``'l1'``/``'l2'``: the predictor's mean absolute deviation or standard
+              deviation.
+            - ``None``: leave the covariates on their raw scale, without centering.
+
+            Prepare data for prediction with ``scale=None`` and apply the fitted
+            model's normalization with :meth:`normalize`.
         stim_is_single
             Whether the original stimulus input was a single predictor per segment.
         basis_std
             Standard deviation of the Gaussian basis functions in seconds.
         in_place
-            If ``False`` (default), copies of ``stim`` are made before applying
-            baseline subtraction or scaling. Set to ``True`` to modify in place.
-        post_normalize
-            If ``True`` (default), equalize covariate scales across predictor
-            blocks by dividing each block by its average spectral norm; the factors
-            are recorded on the resulting ``design``. Has no effect when there
-            is only one covariate channel, where the scaling would just be absorbed
-            into the coefficients. Use ``False`` when preparing data for prediction
-            with a model that was fit on a different dataset, so that the model can
-            apply its own normalization.
+            If ``False`` (default), a copy of ``meg`` is made before it is rescaled.
+            Set to ``True`` to modify it in place. ``stim`` is never modified.
         pad_stim
             If ``False`` (default), keep only rows whose full lag window is inside
             the stimulus time axis. If ``True``, retain edge rows with zero-padded
-            covariates.
+            covariates; with normalization those rows then correspond to a raw
+            stimulus of 0 (rather than 0 after centering).
         """
         if not meg:
             raise ValueError("meg is empty")
         elif len(meg) != len(stim):
             raise ValueError("meg and stim have different lengths")
+        elif scale is not None and scale not in SCALES:
+            raise ValueError(f"{scale=}, need None or one of {SCALES}")
 
         # The design is fully determined by the first segment's predictors
         sensor_dim = meg[0].get_dim('sensor')
         first_time: UTS = meg[0].get_dim('time')
         tstep = first_time.tstep
         trial_length = len(first_time)
-        design = TRFDesign.from_stim(stim[0], tstep, tstart, tstop, nlevel, basis_std, stim_is_single, baseline, scaling)
+        design = TRFDesign.from_stim(stim[0], tstep, tstart, tstop, nlevel, basis_std, stim_is_single)
 
         row_slice = None
         if not pad_stim:
@@ -205,15 +272,9 @@ class RegressionData:
 
         meg_arrays: list[FloatArray] = []
         covariate_arrays: list[FloatArray] = []
-        s_normalization = []
         norm_factor = None
 
         for i_segment, (m, ss) in enumerate(zip(meg, stim)):
-            if in_place:
-                ss = list(ss)
-            else:
-                ss = [s.copy() for s in ss]
-
             if m.get_dim('sensor') != sensor_dim:
                 raise ValueError(f'{meg=}: combining data segments with different sensor configurations is not supported')
 
@@ -228,18 +289,6 @@ class RegressionData:
                     raise ValueError(f"segment {i_segment} stim {x!r}: time axis incompatible with meg")
             if stim_dimensions(ss) != design.stim_dims:
                 raise ValueError(f"{stim=}: segment {i_segment} dimensions incompatible with first segment")
-
-            # Apply stim baseline/scaling
-            if baseline is not None:
-                if len(baseline) != len(ss):
-                    raise ValueError(f"baseline length {len(baseline)} != number of predictors {len(ss)}")
-                for s, b in zip(ss, baseline):
-                    s -= b
-            if scaling is not None:
-                if len(scaling) != len(ss):
-                    raise ValueError(f"scaling length {len(scaling)} != number of predictors {len(ss)}")
-                for s, sc in zip(ss, scaling):
-                    s /= sc
 
             # Extract and normalize MEG array
             y = m.get_data(('sensor', 'time'))
@@ -264,20 +313,20 @@ class RegressionData:
             i = 0
             covariates = []
             for l, b in zip(design.stim_lens, design.basis):
-                covariates.extend([np.dot(x, b) / sqrt(y.shape[1]) for x in raw_covs[i:i + l]])
+                covariates.extend([np.dot(x, b) / norm_factor for x in raw_covs[i:i + l]])
                 i += l
-            s_normalization.append([linalg.norm(x, 2) for x in covariates])
             covariate_arrays.append(np.concatenate(covariates, axis=1).astype(np.float64))
 
-        # Equalize covariate scales across predictor blocks. With a single covariate
-        # channel the scaling would be absorbed into theta, changing the TRF scale.
-        if post_normalize and sum(design.stim_lens) > 1:
-            design = replace(design, stim_normalization=np.array(s_normalization).mean(axis=0))
-            factors = design.covariate_normalization
-            for cov in covariate_arrays:
-                cov /= factors
+        data = cls(meg_arrays, covariate_arrays, norm_factor, design, sensor_dim)
 
-        return cls(meg_arrays, covariate_arrays, norm_factor, design, sensor_dim)
+        if scale is not None:
+            baseline, stim_scaling = get_scaling(stim, design.stim_lens, scale)
+            # Center first, so that spectral norms are measured on centered covariates
+            data.normalize(replace(design, stim_baseline=baseline), inplace=True)
+            if stim_scaling is None:
+                stim_scaling = data._spectral_norms()
+            data.normalize(replace(data.design, stim_scaling=stim_scaling, scale=scale), inplace=True)
+        return data
 
     def __iter__(self) -> Iterator[TrialData]:
         return zip(self.meg, self.covariates)
@@ -310,6 +359,68 @@ class RegressionData:
     def EtE(self) -> list[FloatArray]:
         """Per-segment ``E.T @ E`` covariate Gram matrices."""
         return [np.dot(E.T, E) for E in self.covariates]
+
+    def _spectral_norms(self) -> FloatArray:
+        """Spectral norm of each covariate channel, averaged across segments."""
+        splits = np.cumsum(self.design.basis_widths)[:-1]
+        norms = [[linalg.norm(block, 2) for block in np.split(cov, splits, axis=1)] for cov in self.covariates]
+        return np.array(norms).mean(axis=0)
+
+    def normalize(
+            self,
+            design: TRFDesign,
+            *,
+            inplace: bool = False,
+    ) -> RegressionData:
+        """Apply the centering and scaling recorded in ``design`` to the covariates.
+
+        Normalization is a linear operation on the covariates, so applying it here
+        is equivalent to applying it to the stimulus before covariate construction.
+        Use this to prepare data for a fitted model, which can only be applied to
+        covariates on the scale it was fit on::
+
+            data = data.normalize(model.design)
+
+        Parameters
+        ----------
+        design
+            Design specifying the normalization to apply; it must describe the same
+            coefficient space as this dataset's design. Steps this dataset already
+            carries are skipped, so normalizing twice is a no-op.
+        inplace
+            Modify this dataset's covariates instead of copies of them (default
+            ``False``).
+
+        Raises
+        ------
+        ValueError
+            If ``design`` describes a different coefficient space, or a different
+            normalization than the covariates already carry.
+        """
+        self.design.assert_compatible(design)
+        baseline = _pending(self.design.stim_baseline, design.stim_baseline, 'baseline')
+        scaling = _pending(self.design.stim_scaling, design.stim_scaling, 'scaling')
+        if self.design.stim_scaling is not None and self.design.scale != design.scale:
+            raise ValueError(f"data covariates carry {self.design.scale!r} scaling, the design specifies {design.scale!r}")
+
+        covariates = self.covariates if inplace else [cov.copy() for cov in self.covariates]
+        if baseline is not None:
+            # Every retained row has a full lag window, so subtracting a constant from
+            # the stimulus offsets each covariate column by a constant.
+            offset = design.expand(baseline) * design.basis_column_sums / self.norm_factor
+            for cov in covariates:
+                cov -= offset
+        if scaling is not None:
+            factors = design.expand(scaling)
+            for cov in covariates:
+                cov /= factors
+
+        if not inplace:
+            return replace(self, covariates=covariates, design=design)
+        self.design = design
+        for attr in ('bE', 'EtE'):
+            self.__dict__.pop(attr, None)
+        return self
 
     def whiten(
             self,

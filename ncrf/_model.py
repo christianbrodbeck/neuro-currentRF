@@ -41,6 +41,10 @@ class NCRF:
         source, sensor, and orientation dimensions).
     theta
         Fitted NCRF coefficients over the Gaussian basis.
+    design
+        Stimulus, basis, and normalization metadata of the data the model was fit
+        on. Pass it to :meth:`~ncrf.RegressionData.normalize` to bring another
+        dataset onto the same scale.
     tstart, tstep, tstop, basis_std
         TRF timing and Gaussian-basis width, delegated to the stored design.
     """
@@ -52,27 +56,27 @@ class NCRF:
     ) -> None:
         self.forward = forward
         self.theta = theta
-        self._design = design
+        self.design = design
 
     @property
     def tstart(self) -> list[float]:
-        return self._design.tstart
+        return self.design.tstart
 
     @property
     def tstep(self) -> float:
-        return self._design.tstep
+        return self.design.tstep
 
     @property
     def tstop(self) -> list[float]:
-        return self._design.tstop
+        return self.design.tstop
 
     @property
     def basis_std(self) -> float:
-        return self._design.basis_std
+        return self.design.basis_std
 
     def __repr__(self) -> str:
         n_basis = self.theta.shape[1]
-        predictors = tuple(self._design.stim_names)
+        predictors = tuple(self.design.stim_names)
         return f"<{type(self).__name__}: {_forward_summary(self.forward)}, {_count_repr(n_basis, 'basis coefficient')}, {predictors=}>"
 
     def _whiten(
@@ -84,23 +88,22 @@ class NCRF:
         return data.whiten(self.forward.whitening_filter, accept_whitening=accept_whitening)
 
     def _theta_for(self, data: RegressionData) -> FloatArray:
-        """Coefficients rescaled to match the covariate scaling of ``data``.
+        """Coefficients, after checking that ``data`` is on the scale they were fit on.
 
-        ``theta`` is fit against covariates normalized by the fit-time
-        :attr:`TRFDesign.stim_normalization`. Data prepared without
-        post-normalization is on the raw covariate scale, so the coefficients are
-        rescaled instead of the (much larger) covariate matrices.
+        ``theta`` is fit against covariates carrying the normalization recorded in
+        :attr:`design`, so any other normalization would silently change the
+        predictions.
         """
-        fit_normalization = self._design.stim_normalization
-        data_normalization = data.design.stim_normalization
-        if data_normalization is not None:
-            # The data already carries a scaling; it is only usable if it is the same one
-            if fit_normalization is None or not np.array_equal(data_normalization, fit_normalization):
-                raise ValueError("data covariates were normalized differently than the data the model was fit on; prepare the data with post_normalize=False so that the model can apply its own normalization")
+        design = data.design
+        if design is self.design:
             return self.theta
-        elif fit_normalization is None:
-            return self.theta
-        return self.theta / self._design.covariate_normalization
+        self.design.assert_compatible(design)
+        for attr, name in (('stim_baseline', 'centering'), ('stim_scaling', 'scaling')):
+            if not np.array_equal(getattr(design, attr), getattr(self.design, attr)):
+                raise ValueError(f"data covariates carry different {name} than the data the model was fit on; use data.normalize(model.design) to apply the model's own normalization")
+        if design.scale != self.design.scale:
+            raise ValueError(f"data covariates carry {design.scale!r} scaling, the model was fit with {self.design.scale!r}; use data.normalize(model.design) to apply the model's own normalization")
+        return self.theta
 
     def _predict_whitened(self, theta: FloatArray, covariate: FloatArray) -> FloatArray:
         """Predicted whitened sensor data for one trial's covariate matrix."""
@@ -117,10 +120,9 @@ class NCRF:
         Parameters
         ----------
         data
-            Prepared dataset with a design compatible with the training data.
-            Data prepared for prediction should normally use
-            ``post_normalize=False`` so that this model can apply the training
-            normalization.
+            Prepared dataset with a design compatible with the training data, and
+            carrying the same normalization (prepare it with ``scale=None`` and
+            apply :meth:`~ncrf.RegressionData.normalize` with :attr:`design`).
         accept_whitening
             Set to ``True`` only when this model's whitening filter was already
             applied to ``data``.
@@ -150,9 +152,8 @@ class NCRF:
         Parameters
         ----------
         data
-            Prepared dataset with a design compatible with the training data.
-            Data prepared for evaluation should normally use
-            ``post_normalize=False``.
+            Prepared dataset with a design compatible with the training data, and
+            carrying the same normalization (see :meth:`predict`).
         metrics
             Metric functions such as :func:`~ncrf.explained_variance`, each
             mapping observed and predicted per-segment arrays to a scalar.
@@ -175,8 +176,9 @@ class NCRF:
     ) -> NDVar:
         """Compute each source's contribution to explained variance.
 
-        Set ``accept_whitening=True`` only when the model's whitening filter was
-        applied to ``data``.
+        ``data`` has to carry the same normalization as the training data (see
+        :meth:`predict`). Set ``accept_whitening=True`` only when the model's
+        whitening filter was applied to ``data``.
         """
         data = self._whiten(data, accept_whitening)
         theta = self._theta_for(data)
@@ -204,7 +206,7 @@ class NCRF:
         functions, one per predictor variable (or a bare NDVar when the model was
         fit on a single predictor).
         """
-        design = self._design
+        design = self.design
         space = self.forward.space
         source_dims = (self.forward.source, space) if space else (self.forward.source,)
 
@@ -229,10 +231,10 @@ class NCRF:
     @cached_property
     def h_scaled(self) -> NDVar | list[NDVar]:
         """:attr:`h` with the original stimulus scaling restored."""
-        scaling = self._design.stim_scaling
-        if scaling is None:
+        if self.design.stim_scaling is None:
             return self.h
-        elif self._design.stim_is_single:
+        scaling = self.design.per_predictor(self.design.stim_scaling)
+        if self.design.stim_is_single:
             return self.h * scaling[0]
         return [h * s for h, s in zip(self.h, scaling)]
 

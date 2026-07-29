@@ -18,7 +18,7 @@ from eelbrain import NDVar
 import numpy as np
 
 from ._linalg import gaussian_basis
-from ._typing import FloatArray, StimDimensions
+from ._typing import FloatArray, IndexArray, ScaleArg, StimDimensions
 
 
 def time_samples(times: Sequence[float], tstep: float) -> list[int]:
@@ -78,14 +78,15 @@ class TRFDesign:
     stim_names
         Name of each predictor variable.
     stim_baseline, stim_scaling
-        Per-predictor centering/scaling applied during data preparation, used to
-        restore the original stimulus scale in :attr:`~ncrf._model.NCRF.h_scaled`.
-    stim_normalization
-        Scale factor applied to each expanded covariate channel to equalize
-        covariate scales across predictor blocks, or ``None`` when the covariates
-        were left on their raw scale. Set by
-        :meth:`~ncrf._data.RegressionData.from_data`, which knows the covariates;
-        a design that has it set describes covariates that carry that scaling.
+        Centering and scaling applied to the covariates during data preparation,
+        one value per expanded covariate channel, or ``None`` when that step was
+        not applied. Set by :meth:`~ncrf._data.RegressionData.normalize`; a design
+        that has them set describes covariates that carry them.
+        :attr:`~ncrf._model.NCRF.h_scaled` uses :attr:`stim_scaling` to restore the
+        original stimulus scale.
+    scale
+        Which scaling produced :attr:`stim_scaling` (``'l1'``, ``'l2'`` or
+        ``'spectral'``), or ``None`` when the covariates were left unscaled.
     """
 
     basis: list[FloatArray]
@@ -96,9 +97,9 @@ class TRFDesign:
     stim_is_single: bool
     stim_dims: list[StimDimensions | None]
     stim_names: list[str]
-    stim_baseline: Sequence[NDVar | float] | None = None
-    stim_scaling: Sequence[NDVar | float] | None = None
-    stim_normalization: FloatArray | None = None
+    stim_baseline: FloatArray | None = None
+    stim_scaling: FloatArray | None = None
+    scale: ScaleArg = None
 
     @classmethod
     def from_stim(
@@ -110,8 +111,6 @@ class TRFDesign:
             nlevel: int = 1,
             basis_std: float = 0.0085,
             stim_is_single: bool = False,
-            stim_baseline: Sequence[NDVar | float] | None = None,
-            stim_scaling: Sequence[NDVar | float] | None = None,
     ) -> TRFDesign:
         """Derive the design from the predictors of one segment.
 
@@ -135,10 +134,6 @@ class TRFDesign:
             Standard deviation of the Gaussian basis functions in seconds.
         stim_is_single
             Whether the original stimulus input was a single predictor per segment.
-        stim_baseline
-            Per-predictor means subtracted from ``stim`` during data preparation.
-        stim_scaling
-            Per-predictor scaling factors applied during data preparation.
         """
         stim_dims = stim_dimensions(stim)
         tstart = list(tstart) if isinstance(tstart, Sequence) else [tstart] * len(stim_dims)
@@ -154,16 +149,15 @@ class TRFDesign:
         return cls(
             basis=basis, tstart=tstart, tstep=tstep, tstop=tstop, basis_std=basis_std,
             stim_is_single=stim_is_single, stim_dims=stim_dims, stim_names=[x.name for x in stim],
-            stim_baseline=stim_baseline, stim_scaling=stim_scaling,
         )
 
     def __repr__(self) -> str:
         predictors = tuple(self.stim_names)
         basis_counts = tuple(basis.shape[1] for basis in self.basis)
         lags = tuple(zip(self.tstart, self.tstop))
-        tstep, basis_std = self.tstep, self.basis_std
-        normalized = self.stim_normalization is not None
-        return f'<{type(self).__name__}: {predictors=}, {basis_counts=}, {lags=}, {tstep=}, {basis_std=}, {normalized=}>'
+        tstep, basis_std, scale = self.tstep, self.basis_std, self.scale
+        centered = self.stim_baseline is not None
+        return f'<{type(self).__name__}: {predictors=}, {basis_counts=}, {lags=}, {tstep=}, {basis_std=}, {centered=}, {scale=}>'
 
     @property
     def stim_lens(self) -> list[int]:
@@ -191,9 +185,59 @@ class TRFDesign:
         return sum(basis.shape[1] * n for basis, n in zip(self.basis, self.stim_lens))
 
     @property
-    def covariate_normalization(self) -> FloatArray | None:
-        """:attr:`stim_normalization` expanded to one factor per covariate column."""
-        if self.stim_normalization is None:
-            return None
-        widths = np.repeat([basis.shape[1] for basis in self.basis], self.stim_lens)
-        return np.repeat(self.stim_normalization, widths)
+    def basis_widths(self) -> IndexArray:
+        """Number of basis functions of each expanded covariate channel."""
+        return np.repeat([basis.shape[1] for basis in self.basis], self.stim_lens)
+
+    @property
+    def basis_column_sums(self) -> FloatArray:
+        """Sum of each covariate column's basis function, one value per column.
+
+        The covariate for a constant stimulus of 1, for rows whose full lag window
+        lies inside the stimulus; i.e. the offset a unit :attr:`stim_baseline`
+        introduces in each covariate column.
+        """
+        return np.concatenate([np.tile(basis.sum(0), n) for basis, n in zip(self.basis, self.stim_lens)])
+
+    def expand(self, values: FloatArray) -> FloatArray:
+        """Expand one value per covariate channel to one value per covariate column."""
+        return np.repeat(values, self.basis_widths)
+
+    def per_predictor(self, values: FloatArray) -> list[NDVar | float]:
+        """Split one value per covariate channel into one item per predictor.
+
+        Predictors with a feature dimension yield an :class:`~eelbrain.NDVar` over
+        that dimension; scalar predictors yield a :class:`float`.
+        """
+        out = []
+        i = 0
+        for dim, n in zip(self.stim_dims, self.stim_lens):
+            chunk = values[i:i + n]
+            out.append(NDVar(chunk, (dim,)) if dim else float(chunk[0]))
+            i += n
+        return out
+
+    def assert_compatible(self, other: TRFDesign) -> None:
+        """Check that ``other`` describes the same coefficient space as this design.
+
+        Only structural metadata is compared; the normalization a design records is
+        the caller's business.
+
+        Parameters
+        ----------
+        other
+            Design to compare against.
+
+        Raises
+        ------
+        ValueError
+            If the designs describe different predictors, TRF timings, or bases.
+        """
+        if other is self:
+            return
+        for attr in ('stim_names', 'stim_dims', 'tstart', 'tstop', 'tstep', 'basis_std'):
+            mine, theirs = getattr(self, attr), getattr(other, attr)
+            if mine != theirs:
+                raise ValueError(f"incompatible design: {attr} is {theirs} instead of {mine}")
+        if len(other.basis) != len(self.basis) or not all(np.array_equal(a, b) for a, b in zip(self.basis, other.basis)):
+            raise ValueError("incompatible design: different Gabor basis (check nlevel)")

@@ -54,6 +54,7 @@ to evaluate a fitted model on new data.
    :maxdepth: 1
 
    installing
+   guide
    architecture
    changes
    development

@@ -23,11 +23,10 @@ from ._crossvalidation import CrossValidation
 from ._data import RegressionData
 from ._model import NCRFEstimator, NCRFResult
 from ._solvers import ChampLasso, Solver
-from ._typing import MuArg
+from ._typing import MuArg, ScaleArg
 
 
 DEFAULT_MUs = np.logspace(-3, -1, 7)
-NormalizationValue: TypeAlias = NDVar | float
 StimulusInput: TypeAlias = NDVar | Sequence[NDVar]
 TrialStimulusInput: TypeAlias = StimulusInput | Sequence[StimulusInput]
 MegInput: TypeAlias = NDVar | Sequence[NDVar]
@@ -82,7 +81,7 @@ def fit_ncrf(
         n_iter: int = 10,
         n_iterc: int = 10,
         n_iterf: int = 100,
-        normalize: bool | str = False,
+        scale: ScaleArg = 'spectral',
         in_place: bool = False,
         mu: MuArg = 'auto',
         tol: float = 1e-3,
@@ -91,7 +90,6 @@ def fit_ncrf(
         n_workers: int | None = None,
         use_ES: bool = False,
         basis_std: float = 0.0085,
-        do_post_normalization: bool = True,
         solver: Solver | None = None,
 ) -> NCRFResult:
     r"""One shot function for cortical TRF localization.
@@ -134,15 +132,18 @@ def fit_ncrf(
         Number of Champagne iterations within each outer iteration, by default set to 10.
     n_iterf
         Number of FASTA iterations within each outer iteration, by default set to 100.
-    normalize
-        Scale ``stim`` before model fitting: subtract the mean and divide by
-        the standard deviation (when ``normalize='l2'`` or ``normalize=True``)
-        or the mean absolute value (when ``normalize='l1'``). By default,
-        ``normalize=False`` leaves ``stim`` data untouched.
+    scale
+        Normalization applied before model fitting: each predictor's mean is
+        subtracted, and the covariates are divided by the ``'l2'`` (standard
+        deviation of ``stim``), ``'l1'`` (mean absolute deviation of ``stim``) or
+        ``'spectral'`` (average spectral norm of the covariates, which equalizes
+        covariate scales across predictor variables; the default) scale. Use
+        ``None`` to leave ``stim`` untouched. :attr:`NCRF.h_scaled` undoes the
+        scaling, whichever one is used.
     in_place
-        By default, ``meg`` and ``stim`` are copied to make them independent of the
-        objects supplied to the function. Set to ``True`` to skip the copy and
-        modify them in place, saving memory when working with large datasets.
+        By default, ``meg`` is copied to make it independent of the object supplied
+        to the function. Set to ``True`` to skip the copy and modify it in place,
+        saving memory when working with large datasets. ``stim`` is never modified.
     mu
         Choice of regularizer parameters. Pass a single value to fit one model, a
         sequence to cross-validate over an explicit grid, or ``'auto'`` to derive a
@@ -166,9 +167,6 @@ def fit_ncrf(
         (default ``0.0085``, approximately 20 ms FWHM).
         The standard deviation (std) is related to the fwmh by:
         :math:`std = fwhm / (2 * (sqrt(2 * log(2))))`.
-    do_post_normalization
-        Scales covariate matrices of different predictor variables by spectral norms to
-        equalize their spectral spread (=1). (default ``True``)
     solver
         Solver configuration. When supplied, ``mu`` and the iteration arguments
         are ignored; configure them on the solver. ``n_splits``, ``n_workers``,
@@ -262,23 +260,9 @@ def fit_ncrf(
                 raise ValueError(f"{meg=}, {stim=}: inconsistent case dimensions")
             stim_trials.append(stim_chunk)
 
-    # normalize=True defaults to 'l2'
-    if normalize is False:
-        s_baseline, s_scale = None, None
-    elif normalize is True:
-        normalize = 'l2'
-        s_baseline, s_scale = get_scaling(stim_trials, normalize)
-    elif isinstance(normalize, str):
-        if normalize not in ('l1', 'l2'):
-            raise ValueError(f"{normalize=}, need bool or 'l1' or 'l2'")
-        s_baseline, s_scale = get_scaling(stim_trials, normalize)
-    else:
-        raise TypeError(f"{normalize=}, need bool or str")
-
     ds = RegressionData.from_data(
         meg_trials, stim_trials, tstart, tstop, nlevels,
-        s_baseline, s_scale, stim_is_single, basis_std=basis_std,
-        in_place=in_place, post_normalize=do_post_normalization,
+        scale, stim_is_single, basis_std=basis_std, in_place=in_place,
     )
 
     # noise covariance
@@ -298,19 +282,3 @@ def fit_ncrf(
         verbose=verbose,
         compute_explained_variance=True,
     )
-
-
-def get_scaling(
-        all_stims: list[list[NDVar]],
-        normalize: str,
-) -> tuple[list[NormalizationValue], list[NormalizationValue]]:
-    """Compute per-predictor centering and scaling values for stimulus normalization."""
-    stim_trials = [trials for trials in zip(*all_stims)]  # -> [[stim_1_trial_1, stim_1_trial_2, ...], ...]
-    n = sum(len(stim.time) for stim in stim_trials[0])
-    means = [sum(s.sum('time') for s in trials) / n for trials in stim_trials]
-    stim_trials = [[s - mean for s in stims] for mean, stims in zip(means, stim_trials)]
-    if normalize == 'l1':
-        scales = [sum(s.abs().sum('time') for s in trials) / n for trials in stim_trials]
-    else:
-        scales = [(sum((s ** 2).sum('time') for s in trials) / n) ** 0.5 for trials in stim_trials]
-    return means, scales
