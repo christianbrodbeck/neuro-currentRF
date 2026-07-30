@@ -230,7 +230,7 @@ class NCRF:
 
     @cached_property
     def h_scaled(self) -> NDVar | list[NDVar]:
-        """:attr:`h` with the original stimulus scaling restored."""
+        """:attr:`~ncrf.NCRF.h` with the original stimulus scaling restored."""
         if self.design.stim_scaling is None:
             return self.h
         scaling = self.design.per_predictor(self.design.stim_scaling)

@@ -138,7 +138,7 @@ def fit_ncrf(
         deviation of ``stim``), ``'l1'`` (mean absolute deviation of ``stim``) or
         ``'spectral'`` (average spectral norm of the covariates, which equalizes
         covariate scales across predictor variables; the default) scale. Use
-        ``None`` to leave ``stim`` untouched. :attr:`NCRF.h_scaled` undoes the
+        ``None`` to leave ``stim`` untouched. :attr:`~ncrf.NCRF.h_scaled` undoes the
         scaling, whichever one is used.
     in_place
         By default, ``meg`` is copied to make it independent of the object supplied

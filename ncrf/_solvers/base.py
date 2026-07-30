@@ -71,7 +71,7 @@ class Solver(ABC):
     hooks while returning a common :class:`SolverResult` interface.
     """
 
-    #: Key in :attr:`CVResult.scores` minimized when selecting among candidates.
+    # Key in each ``CVResult.scores`` mapping minimized when selecting among candidates.
     criterion: str = 'l2_error'
 
     def candidates(
