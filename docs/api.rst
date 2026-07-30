@@ -42,6 +42,7 @@ Solvers
     Solver
     SolverResult
     ChampLasso
+    ChampLassoResult
 
 Metrics
 -------

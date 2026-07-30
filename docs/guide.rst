@@ -1,6 +1,31 @@
 Guide
 =====
 
+The simplest entry point is :func:`ncrf.fit_ncrf`, which accepts Eelbrain
+:class:`~eelbrain.NDVar` objects, prepares the regression design, selects a
+regularization value when needed, and returns a structured fit report::
+
+    from ncrf import fit_ncrf
+
+    result = fit_ncrf(
+        meg,
+        stim,
+        lead_field,
+        noise,
+        mu="auto",
+        tstop=1.0,
+        n_splits=3,
+    )
+    trf = result.model.h
+    training_scores = result.scores
+
+The fitted :class:`~ncrf.NCRF` in ``result.model`` is independent of the
+optimizer that produced it. It can predict or evaluate another compatible
+:class:`~ncrf.RegressionData` dataset. Optimization diagnostics remain in
+``result.solver_fit``, and cross-validation results can be inspected with
+:meth:`~ncrf.NCRFResult.cv_info`.
+
+
 Normalization
 -------------
 

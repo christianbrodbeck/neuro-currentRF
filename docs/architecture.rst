@@ -5,8 +5,20 @@ Neuro-currentRF separates input preparation, forward-model handling,
 optimization, and prediction. This keeps the fitted model reusable and allows
 optimization algorithms to be changed without changing the prediction API.
 
+
 Pipeline
 --------
+
+The most important classes are:
+
+* :class:`~ncrf.RegressionData` prepares and stores the sensor data, lagged
+  basis-projected covariates, and the metadata needed to reconstruct TRFs.
+* :class:`~ncrf.NCRFEstimator` owns the forward model and whitening transform,
+  selects a solver candidate through cross-validation, and runs the final fit.
+* :class:`~ncrf.Solver` implementations, such as :class:`~ncrf.ChampLasso`,
+  define optimization and candidate-selection behavior.
+* :class:`~ncrf.NCRFResult` provides access to the reusable :class:`~ncrf.NCRF` model
+  from the selected solver, along with solver-specific fit state, scores, and diagnostics.
 
 The high-level data flow is::
 

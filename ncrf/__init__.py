@@ -10,5 +10,5 @@ from ._data import RegressionData
 from ._crossvalidation import CrossValidation
 from ._model import NCRFEstimator, NCRF, NCRFResult
 from ._metrics import explained_variance, l2_error
-from ._solvers import ChampLasso, Solver, SolverResult
+from ._solvers import ChampLasso, ChampLassoResult, Solver, SolverResult
 from ._ncrf import fit_ncrf
