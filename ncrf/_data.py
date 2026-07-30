@@ -63,7 +63,7 @@ def get_scaling(
         scales = [sum(x.abs().sum('time') for x in trials) / n for trials in centered]
     elif scale == 'l2':
         scales = [(sum((x ** 2).sum('time') for x in trials) / n) ** 0.5 for trials in centered]
-    else:
+    else:  # 'spectral' is computed after covariate construction
         return baseline, None
     return baseline, _channel_values(scales, stim_lens)
 
@@ -323,7 +323,7 @@ class RegressionData:
             baseline, stim_scaling = get_scaling(stim, design.stim_lens, scale)
             # Center first, so that spectral norms are measured on centered covariates
             data.normalize(replace(design, stim_baseline=baseline), inplace=True)
-            if stim_scaling is None:
+            if scale == 'spectral':
                 stim_scaling = data._spectral_norms()
             data.normalize(replace(data.design, stim_scaling=stim_scaling, scale=scale), inplace=True)
         return data
