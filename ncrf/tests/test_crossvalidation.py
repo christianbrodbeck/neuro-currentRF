@@ -95,14 +95,16 @@ def test_score_candidate_uses_estimator_fit_primitive(monkeypatch):
 
 
 def test_refine_mu_grid():
-    candidates = tuple(ChampLasso(mu=mu) for mu in (0.1, 0.2, 0.3))
+    champ = ChampLasso(mu=0.1)
+    mus = (0.1, 0.2, 0.3)
 
-    left = candidates[0].refine(candidates, candidates[0])
-    right = candidates[0].refine(candidates, candidates[-1])
+    left = champ.refine([_cv_result(mu, cross_fit=mu) for mu in mus])
+    right = champ.refine([_cv_result(mu, cross_fit=-mu) for mu in mus])
+    interior = champ.refine([_cv_result(mu, cross_fit=abs(mu - 0.2)) for mu in mus])
 
     np.testing.assert_allclose([solver.mu for solver in left], np.logspace(-2, -1, 4)[:-1])
     np.testing.assert_allclose([solver.mu for solver in right], np.logspace(np.log10(0.3), np.log10(3), 4)[1:])
-    assert candidates[0].refine(candidates, candidates[1]) == ()
+    assert interior == ()
 
 
 def test_select_es_solver():
@@ -155,6 +157,41 @@ def test_crossvalidate_propagates_worker_error(monkeypatch):
 
     assert progress.updates == [1]
     assert progress.closed
+
+
+def test_select_solver_extends_grid_before_es_selection(monkeypatch):
+    """The boundary extension follows the cross-fit winner, not the ES selection."""
+    candidates = tuple(ChampLasso(mu=mu) for mu in (0.1, 0.2, 0.3, 0.4))
+    extension = [float(mu) for mu in np.logspace(-2, -1, 4)[:-1]]
+    # cross-fit selects the smallest mu, while ES would select an interior candidate
+    scores = {  # mu: (cross_fit, estimation_stability)
+        0.1: (1.0, 5.0),
+        0.2: (2.0, 4.0),
+        0.3: (3.0, 2.0),
+        0.4: (4.0, 3.0),
+        extension[0]: (3.0, 9.0),
+        extension[1]: (0.5, 1.0),
+        extension[2]: (0.8, 0.5),
+    }
+    calls = []
+
+    def crossvalidate(estimator, data, solvers, n_splits, n_workers=None):
+        calls.append([solver.mu for solver in solvers])
+        return [_cv_result(solver.mu, cross_fit=scores[solver.mu][0], es=scores[solver.mu][1]) for solver in solvers]
+
+    monkeypatch.setattr(cv, 'crossvalidate', crossvalidate)
+
+    solver, returned_results = cv.select_solver(
+        object(),
+        object(),
+        candidates,
+        cv.CrossValidation(n_splits=2, n_workers=0, use_es=True),
+    )
+
+    assert calls == [[0.1, 0.2, 0.3, 0.4], extension]
+    # ES minimum above the extended cross-fit winner (extension[1]), not the 0.3 of the truncated grid
+    assert solver.mu == extension[2]
+    assert [result.solver.mu for result in returned_results] == [0.1, 0.2, 0.3, 0.4, *extension]
 
 
 def test_select_solver_es_is_independent_of_result_order(monkeypatch):

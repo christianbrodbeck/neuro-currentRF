@@ -211,18 +211,16 @@ def select_solver(
 ) -> tuple[Solver, list[CVResult]]:
     """Cross-validate solver candidates and choose the best one.
 
-    The solver decides how to score, compare and extend its candidates; this
-    function only drives the passes.
+    The solver's ``refine`` and ``select`` methods decide how to score,
+    extend and compare its candidates.
     """
     logger = logging.getLogger(__name__)
     logger.info('Crossvalidation initiated!')
     cv_results = crossvalidate(estimator, data, candidates, cv.n_splits, cv.n_workers)
-    solver = candidates[0].select(cv_results, cv)
-
-    extra = candidates[0].refine(candidates, solver)
+    extra = candidates[0].refine(cv_results)
     if extra:
         cv_results.extend(crossvalidate(estimator, data, extra, cv.n_splits, cv.n_workers))
-        solver = candidates[0].select(cv_results, cv)
+    solver = candidates[0].select(cv_results, cv)
     return solver, cv_results
 
 

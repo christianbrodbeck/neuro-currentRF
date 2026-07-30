@@ -99,7 +99,7 @@ def test_default_selection_contract():
     assert solver.without_history() is solver
     assert solver.candidates(None, None) == (solver,)
     # no extra passes, and the generic criterion picks the smallest l2_error
-    assert solver.refine((worse, better), better) == ()
+    assert solver.refine(cv_results) == ()
     assert solver.select(cv_results, CrossValidation()) is better
     # a generic table renders from whatever score keys are present
     assert 'l2_error' in str(solver.cv_table(cv_results, better))

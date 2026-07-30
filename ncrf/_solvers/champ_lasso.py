@@ -540,20 +540,26 @@ class ChampLasso(Solver):
 
     def refine(
             self,
-            candidates: Sequence[ChampLasso],
-            best: ChampLasso,
+            cv_results: Sequence[CVResult],
     ) -> tuple[ChampLasso, ...]:
-        """Return one additional decade when the best candidate is on a grid boundary."""
+        """Return one additional decade when the cross-fit winner is on a grid boundary.
+
+        The extension is based on the cross-fit winner rather than on the outcome
+        of :meth:`select`, so that the estimation-stability criterion is applied
+        to the complete cross-fit search range.
+        """
         logger = logging.getLogger(__name__)
-        mus = [candidate.mu for candidate in candidates]
+        best = select_by_criterion(cv_results, 'cross-fit')
+        mus = [result.solver.mu for result in cv_results]
         if best.mu == min(mus):
             new_mus = np.logspace(np.log10(best.mu) - 1, np.log10(best.mu), 4)[:-1]
+            direction = 'left'
         elif best.mu == max(mus):
             new_mus = np.logspace(np.log10(best.mu), np.log10(best.mu) + 1, 4)[1:]
+            direction = 'right'
         else:
             return ()
-        direction = 'left' if new_mus[-1] < best.mu else 'right'
-        logger.info(f'CVmu is {best.mu}: extending range of mu towards {direction}')
+        logger.info(f'Best cross-fit mu is {best.mu}: extending range of mu towards the {direction}')
         return tuple(replace(best, mu=float(mu)) for mu in new_mus)
 
     def cv_table(

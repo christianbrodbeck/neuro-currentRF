@@ -6,7 +6,7 @@ are selected by cross-validation, which is driven entirely through the hooks bel
 
 - :meth:`SolverResult.score` contributes solver-specific scores.
 - :attr:`Solver.criterion` names the score to minimize.
-- :meth:`Solver.select` picks the winner, :meth:`Solver.refine` may extend the search.
+- :meth:`Solver.refine` may extend the search, then :meth:`Solver.select` picks the winner.
 
 Every hook has a working default, so a new solver only needs :meth:`solve`.
 """
@@ -109,12 +109,13 @@ class Solver(ABC):
 
     def refine(
             self,
-            candidates: Sequence[Solver],
-            best: Solver,
+            cv_results: Sequence[CVResult],
     ) -> tuple[Solver, ...]:
-        """Additional candidates to score after a first selection pass.
+        """Additional candidates to score before the final selection.
 
-        Returning ``()`` (the default) ends the search after one pass.
+        Called with the results of the first pass, so that :meth:`select` sees
+        the complete search range. Returning ``()`` (the default) ends the
+        search after one pass.
         """
         return ()
 
