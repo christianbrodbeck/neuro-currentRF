@@ -84,6 +84,14 @@ markers = [
 ]
 addopts = "--strict-markers"
 
+[tool.cibuildwheel]
+test-requires = [
+  "eelbrain>=0.34",
+  "pytest",
+  "pytest-cov",
+]
+test-command = "pytest -m \"not slow\" -rsx -v --pyargs ncrf --cov ncrf --cov-report=xml:{project}/coverage.xml"
+
 [tool.tomlsort]
 all = true
 ignore_case = true

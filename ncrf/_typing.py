@@ -1,7 +1,8 @@
 """Shared type aliases and numeric tolerances for the NCRF package."""
 from __future__ import annotations
 
-from typing import Callable, Literal, Sequence
+from typing import Literal
+from collections.abc import Callable, Sequence
 
 from eelbrain import Categorial, Scalar, Space
 import numpy as np

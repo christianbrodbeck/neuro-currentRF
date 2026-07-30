@@ -7,7 +7,8 @@ evaluate several metrics on the same predictions; see :meth:`NCRF.evaluate`.
 """
 from __future__ import annotations
 
-from typing import Callable, Sequence, TypeAlias
+from typing import TypeAlias
+from collections.abc import Callable, Sequence
 
 import numpy as np
 

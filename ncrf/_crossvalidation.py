@@ -15,7 +15,8 @@ import os
 from dataclasses import dataclass
 from math import ceil
 from multiprocessing import Pool
-from typing import TYPE_CHECKING, Callable, Iterator, Sequence
+from typing import TYPE_CHECKING
+from collections.abc import Callable, Iterator, Sequence
 
 from eelbrain._config import CONFIG
 import numpy as np

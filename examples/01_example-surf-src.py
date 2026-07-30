@@ -42,7 +42,7 @@ offset = n_times_run1
 for idx in [1]:
     csv_fname = data_path / 'MEG' / 'bst_auditory' / f'events_bad_0{idx}.csv'
     df = pd.read_csv(csv_fname, header=None, names=['onset', 'duration', 'id', 'label'])
-    print('Events from run {0}:'.format(idx))
+    print(f'Events from run {idx}:')
     print(df)
 
     df['onset'] += offset * (idx - 1)
@@ -69,8 +69,7 @@ diffs = np.concatenate([[min_diff + 1], np.diff(onsets)])
 onsets = onsets[diffs > min_diff]
 assert len(onsets) == len(events)
 diffs = 1000. * (events[:, 0] - onsets) / raw.info['sfreq']
-print('Trigger delay removed (μ ± σ): %0.1f ± %0.1f ms'
-      % (np.mean(diffs), np.std(diffs)))
+print(f'Trigger delay removed (μ ± σ): {np.mean(diffs):0.1f} ± {np.std(diffs):0.1f} ms')
 
 # events times are rescaled according to new sampling freq, 100 Hz
 events[:, 0] = np.int64(onsets * 100 / raw.info['sfreq'])

@@ -11,7 +11,7 @@ model with training scores and solver-specific provenance.
 from __future__ import annotations
 
 from functools import cached_property
-from typing import Sequence
+from collections.abc import Sequence
 
 from eelbrain import NDVar, UTS, fmtxt
 import numpy as np
@@ -48,6 +48,7 @@ class NCRF:
     tstart, tstep, tstop, basis_std
         TRF timing and Gaussian-basis width, delegated to the stored design.
     """
+
     def __init__(
             self,
             forward: ForwardModel,
@@ -262,6 +263,7 @@ class NCRFEstimator:
     :class:`NCRFFit` keeps the reusable model separate from solver-specific
     fitted state.
     """
+
     def __init__(
             self,
             lead_field: NDVar,
@@ -395,6 +397,7 @@ class NCRFFit:
     Cross-validation scores are retained when candidate selection runs and are
     exposed through :meth:`cv_info` and :meth:`cv_mu`.
     """
+
     def __init__(
             self,
             model: NCRF,

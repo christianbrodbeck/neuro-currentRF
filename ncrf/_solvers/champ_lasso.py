@@ -13,7 +13,8 @@ from dataclasses import dataclass, field, replace
 from math import log10, sqrt
 from multiprocessing import current_process
 from numbers import Real
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING
+from collections.abc import Sequence
 
 from eelbrain import fmtxt
 import numpy as np

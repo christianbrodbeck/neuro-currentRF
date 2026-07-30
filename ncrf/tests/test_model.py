@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, Mock
 import numpy as np
 import pytest
 
-from ncrf import ChampLassoFit, CrossValidation, NCRFFit, SolverFit
+from ncrf import CrossValidation, SolverFit
 from ncrf._crossvalidation import CVResult
 from ncrf._data import RegressionData, covariate_from_stim
 from ncrf._linalg import gaussian_basis

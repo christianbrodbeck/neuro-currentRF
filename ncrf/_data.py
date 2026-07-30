@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from functools import cached_property
 from math import sqrt
-from typing import Iterator, Sequence
+from collections.abc import Iterator, Sequence
 
 from eelbrain import NDVar, Sensor, UTS
 import numpy as np

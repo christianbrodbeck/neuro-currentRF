@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from math import sqrt
 import time
-from typing import Callable
+from collections.abc import Callable
 
 import logging
 
