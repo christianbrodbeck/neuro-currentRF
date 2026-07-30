@@ -21,7 +21,7 @@ import numpy as np
 
 from ._crossvalidation import CrossValidation
 from ._data import RegressionData
-from ._model import NCRFEstimator, NCRFResult
+from ._model import NCRFEstimator, NCRFFit
 from ._solvers import ChampLasso, Solver
 from ._typing import MuArg, ScaleArg
 
@@ -91,7 +91,7 @@ def fit_ncrf(
         use_ES: bool = False,
         basis_std: float = 0.0085,
         solver: Solver | None = None,
-) -> NCRFResult:
+) -> NCRFFit:
     r"""One shot function for cortical TRF localization.
 
     Estimate both TRFs and source variance from the observed MEG data by solving
@@ -175,8 +175,8 @@ def fit_ncrf(
 
     Returns
     -------
-    :class:`NCRFResult`
-        Fit report. The fitted, reusable model is :attr:`NCRFResult.model` (an
+    :class:`NCRFFit`
+        Fit report. The fitted, reusable model is :attr:`NCRFFit.model` (an
         :class:`NCRF`); the response functions are ``result.model.h`` /
         ``result.model.h_scaled``, and metrics for an arbitrary dataset are
         ``result.model.evaluate(data)``. Training-set metrics (``scores``,

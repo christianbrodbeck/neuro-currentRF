@@ -23,7 +23,7 @@ The fitted :class:`~ncrf.NCRF` in ``result.model`` is independent of the
 optimizer that produced it. It can predict or evaluate another compatible
 :class:`~ncrf.RegressionData` dataset. Optimization diagnostics remain in
 ``result.solver_fit``, and cross-validation results can be inspected with
-:meth:`~ncrf.NCRFResult.cv_info`.
+:meth:`~ncrf.NCRFFit.cv_info`.
 
 
 Normalization

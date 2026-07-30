@@ -2,7 +2,7 @@ API reference
 =============
 
 The public ``ncrf`` API provides a convenience function as well as composable
-data, estimator, solver, model, and result objects.
+data, estimator, solver, model, and fit objects.
 
 .. currentmodule:: ncrf
 
@@ -24,14 +24,14 @@ Fitting pipeline
     NCRFEstimator
     CrossValidation
 
-Models and results
-------------------
+Models and fits
+---------------
 
 .. autosummary::
     :toctree: generated/
 
     NCRF
-    NCRFResult
+    NCRFFit
 
 Solvers
 -------
@@ -40,9 +40,9 @@ Solvers
     :toctree: generated/
 
     Solver
-    SolverResult
+    SolverFit
     ChampLasso
-    ChampLassoResult
+    ChampLassoFit
 
 Metrics
 -------

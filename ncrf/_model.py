@@ -2,7 +2,7 @@
 
 :class:`NCRFEstimator` owns forward-model preparation, candidate selection, and
 fitting. :class:`NCRF` contains the resulting coefficients and prediction API,
-independent of the solver that produced them. :class:`NCRFResult` bundles that
+independent of the solver that produced them. :class:`NCRFFit` bundles that
 model with training scores and solver-specific provenance.
 """
 # Authors: Proloy Das <email:proloyd94@gmail.com>
@@ -22,7 +22,7 @@ from ._trf_design import TRFDesign
 from ._forward import ForwardModel
 from ._metrics import Metric, explained_variance, l2_error
 from ._repr import _count_repr, _forward_summary
-from ._solvers import Solver, SolverResult
+from ._solvers import Solver, SolverFit
 from ._typing import FloatArray
 
 
@@ -32,7 +32,7 @@ class NCRF:
     Holds the estimated weights together with the forward model and stimulus
     design needed to reconstruct response functions, predict whitened sensor
     data, and evaluate predictions. Reusable and picklable; produced by
-    :meth:`NCRFEstimator.fit` and exposed as :attr:`NCRFResult.model`.
+    :meth:`NCRFEstimator.fit` and exposed as :attr:`NCRFFit.model`.
 
     Attributes
     ----------
@@ -243,7 +243,7 @@ class NCRFEstimator:
     """Estimator for neuro-current response functions (NCRFs).
 
     Construct with a lead field and noise covariance, then call :meth:`fit`
-    with a :class:`RegressionData` instance to obtain an :class:`NCRFResult`.
+    with a :class:`RegressionData` instance to obtain an :class:`NCRFFit`.
 
     Parameters
     ----------
@@ -259,7 +259,7 @@ class NCRFEstimator:
     Use :meth:`RegressionData.from_data` to prepare the M/EEG and predictor
     segments, initialize this estimator with the matching forward inputs, and
     call :meth:`fit` with a configured :class:`Solver`. The returned
-    :class:`NCRFResult` keeps the reusable model separate from solver-specific
+    :class:`NCRFFit` keeps the reusable model separate from solver-specific
     fitted state.
     """
     def __init__(
@@ -277,7 +277,7 @@ class NCRFEstimator:
             data: RegressionData,
             solver: Solver,
             verbose: bool = False,
-    ) -> tuple[NCRF, SolverResult]:
+    ) -> tuple[NCRF, SolverFit]:
         """Fit one solver configuration on prepared, whitened data."""
         solver_fit = solver.solve(self.forward, data, verbose=verbose)
         model = NCRF(
@@ -296,7 +296,7 @@ class NCRFEstimator:
             verbose: bool = False,
             compute_explained_variance: bool = False,
             accept_whitening: bool = False,
-    ) -> NCRFResult:
+    ) -> NCRFFit:
         """Fit a configured solver to prepared regression data.
 
         Parameters
@@ -322,7 +322,7 @@ class NCRFEstimator:
 
         Returns
         -------
-        NCRFResult
+        NCRFFit
             Fitted model, selected solver, solver state, training scores, and
             optional cross-validation and source-wise diagnostics.
         """
@@ -352,7 +352,7 @@ class NCRFEstimator:
         else:
             voxelwise = None
 
-        return NCRFResult(
+        return NCRFFit(
             model,
             solver=solver,
             solver_fit=solver_fit,
@@ -362,7 +362,7 @@ class NCRFEstimator:
         )
 
 
-class NCRFResult:
+class NCRFFit:
     """Report produced by :meth:`NCRFEstimator.fit`.
 
     Bundles the fitted :class:`NCRF` with the training-set evaluation and the
@@ -381,7 +381,7 @@ class NCRFResult:
     scores
         Prediction metrics on the training data, keyed by name: the
         solver-independent model metrics plus whatever the solver contributes
-        through :meth:`SolverResult.score` (for ChampLasso, ``cross_fit`` and
+        through :meth:`SolverFit.score` (for ChampLasso, ``cross_fit`` and
         ``weighted_l2_error``). For an arbitrary dataset use
         :meth:`NCRF.evaluate`.
     voxelwise_explained_variance
@@ -400,7 +400,7 @@ class NCRFResult:
             model: NCRF,
             *,
             solver: Solver,
-            solver_fit: SolverResult,
+            solver_fit: SolverFit,
             scores: dict[str, float],
             voxelwise_explained_variance: NDVar | None,
             cv_results: list[CVResult] | None,

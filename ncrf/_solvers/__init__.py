@@ -1,3 +1,3 @@
 """NCRF solver implementations."""
-from .base import Solver, SolverResult
-from .champ_lasso import ChampLasso, ChampLassoResult
+from .base import Solver, SolverFit
+from .champ_lasso import ChampLasso, ChampLassoFit

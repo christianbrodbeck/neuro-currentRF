@@ -17,7 +17,7 @@ The most important classes are:
   selects a solver candidate through cross-validation, and runs the final fit.
 * :class:`~ncrf.Solver` implementations, such as :class:`~ncrf.ChampLasso`,
   define optimization and candidate-selection behavior.
-* :class:`~ncrf.NCRFResult` provides access to the reusable :class:`~ncrf.NCRF` model
+* :class:`~ncrf.NCRFFit` provides access to the reusable :class:`~ncrf.NCRF` model
   from the selected solver, along with solver-specific fit state, scores, and diagnostics.
 
 The high-level data flow is::
@@ -42,10 +42,10 @@ The high-level data flow is::
              final solver run
                     |
                     v
-               NCRFResult
+                 NCRFFit
           +---------+----------+
           |                    |
-        NCRF              SolverResult
+        NCRF                SolverFit
     (prediction and       (optimizer state
      reconstructed TRFs)   and diagnostics)
 
@@ -81,10 +81,10 @@ there are several candidates, :class:`~ncrf.NCRFEstimator` uses
 :class:`~ncrf.CrossValidation` to score them, asks the solver to select a winner,
 and then fits that configuration on all of the data.
 
-The generic :class:`~ncrf.SolverResult` contains the fitted coefficient matrix;
+The generic :class:`~ncrf.SolverFit` contains the fitted coefficient matrix;
 concrete solvers can add algorithm-specific state and scores. For example,
 :class:`~ncrf.ChampLasso` adds its covariance estimates and iteration history.
-These details remain in :attr:`ncrf.NCRFResult.solver_fit` rather than becoming
+These details remain in :attr:`ncrf.NCRFFit.solver_fit` rather than becoming
 part of the predictive model.
 
 Lower-level fitting
@@ -116,7 +116,7 @@ the cross-validation step is skipped.
 Model and fit report
 --------------------
 
-:class:`~ncrf.NCRFResult` is the report for one fit. Its main attributes have
+:class:`~ncrf.NCRFFit` is the report for one fit. Its main attributes have
 deliberately separate lifetimes and responsibilities:
 
 ``model``

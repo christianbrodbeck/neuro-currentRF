@@ -4,7 +4,7 @@ A solver is immutable configuration that estimates NCRF weights (:meth:`Solver.s
 Solvers that expose more than one candidate configuration (:meth:`Solver.candidates`)
 are selected by cross-validation, which is driven entirely through the hooks below:
 
-- :meth:`SolverResult.score` contributes solver-specific scores.
+- :meth:`SolverFit.score` contributes solver-specific scores.
 - :attr:`Solver.criterion` names the score to minimize.
 - :meth:`Solver.refine` may extend the search, then :meth:`Solver.select` picks the winner.
 
@@ -28,10 +28,10 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True, repr=False)
-class SolverResult:
+class SolverFit:
     """Fitted state from one solver execution.
 
-    The generic result contains the coefficient matrix consumed by
+    The generic fit contains the coefficient matrix consumed by
     :class:`~ncrf.NCRF`. Concrete solvers can add optimizer-specific state,
     diagnostics, and scores without coupling those details to the predictive
     model.
@@ -56,7 +56,7 @@ class SolverResult:
         """Solver-specific scores for ``data``, e.g. the training objective.
 
         Merged with the solver-independent model metrics wherever a fit is
-        scored: on the training data in :attr:`NCRFResult.scores`, and per fold
+        scored: on the training data in :attr:`NCRFFit.scores`, and per fold
         in ``CVResult.scores``. Keys must not collide with the metric names.
         """
         return {}
@@ -68,7 +68,7 @@ class Solver(ABC):
     :class:`~ncrf.NCRFEstimator` asks a solver for fixed candidate
     configurations, cross-validates them when necessary, and calls :meth:`solve`
     for the final fit. Implementations can override the selection and refinement
-    hooks while returning a common :class:`SolverResult` interface.
+    hooks while returning a common :class:`SolverFit` interface.
     """
 
     # Key in each ``CVResult.scores`` mapping minimized when selecting among candidates.
@@ -89,7 +89,7 @@ class Solver(ABC):
             data: RegressionData,
             *,
             verbose: bool = False,
-    ) -> SolverResult:
+    ) -> SolverFit:
         """Estimate source-space NCRF weights for prepared, whitened data."""
 
     def without_history(self) -> Solver:

@@ -29,7 +29,7 @@ from .._linalg import _inv_sqrtm, compute_gamma
 from .._penalties import g, g_group, proxg_group_opt, shrink
 from .._repr import _count_repr
 from .._typing import _R_tol, FloatArray, GradientFunction, MuArg, ObjectiveFunction
-from .base import Solver, SolverResult
+from .base import Solver, SolverFit
 
 if TYPE_CHECKING:
     from .._crossvalidation import CrossValidation, CVResult
@@ -405,7 +405,7 @@ class _ChampLassoState:
 
 
 @dataclass(frozen=True, repr=False)
-class ChampLassoResult(SolverResult):
+class ChampLassoFit(SolverFit):
     """Fitted state produced by :class:`ChampLasso`."""
 
     history: ChampLassoHistory
@@ -616,7 +616,7 @@ class ChampLasso(Solver):
             data: RegressionData,
             *,
             verbose: bool = False,
-    ) -> ChampLassoResult:
+    ) -> ChampLassoFit:
         """Estimate NCRF weights for one prepared, whitened dataset."""
         if not _is_number(self.mu):
             raise ValueError("ChampLasso.solve() requires a fixed numeric mu; use NCRFEstimator.fit() to resolve a grid or mu='auto'")
@@ -624,7 +624,7 @@ class ChampLasso(Solver):
         history = ChampLassoHistory(**{field: getattr(self, field) for field in _STORE_FIELDS})
         state = _ChampLassoState(forward, self.n_iter, self.n_iterc, self.n_iterf)
         state.run(data, mu, self.tol, history, verbose)
-        return ChampLassoResult(
+        return ChampLassoFit(
             theta=state.theta,
             history=history,
             gamma=state.Gamma,

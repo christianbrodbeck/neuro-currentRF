@@ -107,7 +107,7 @@ class CVResult:
         Mean held-out scores across folds. Always contains the solver-independent
         model metrics (``explained_variance``, ``l2_error``) and
         ``estimation_stability``; solvers add their own through
-        :meth:`SolverResult.score`.
+        :meth:`SolverFit.score`.
     """
 
     solver: Solver

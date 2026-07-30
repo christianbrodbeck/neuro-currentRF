@@ -9,12 +9,12 @@ from unittest.mock import MagicMock, Mock
 import numpy as np
 import pytest
 
-from ncrf import CrossValidation
+from ncrf import ChampLassoFit, CrossValidation, NCRFFit, SolverFit
 from ncrf._crossvalidation import CVResult
 from ncrf._data import RegressionData, covariate_from_stim
 from ncrf._linalg import gaussian_basis
 from ncrf._model import NCRFEstimator, NCRF
-from ncrf._solvers import Solver, SolverResult
+from ncrf._solvers import Solver
 from .fetch import load
 
 from eelbrain import Categorial, NDVar, Scalar, Sensor, UTS, concatenate
@@ -24,7 +24,7 @@ def test_fit_model():
     estimator = NCRFEstimator.__new__(NCRFEstimator)
     estimator.forward = object()
     solver = Mock()
-    solver_fit = SolverResult(np.empty((2, 3)))
+    solver_fit = SolverFit(np.empty((2, 3)))
     solver.solve.return_value = solver_fit
     data = Mock(design=object())
 
@@ -40,7 +40,7 @@ def test_fit_model():
 @dataclass(frozen=True)
 class _ZeroSolver(Solver):
     def solve(self, forward, data, *, verbose=False):
-        return SolverResult(np.zeros((1, 1)))
+        return SolverFit(np.zeros((1, 1)))
 
 
 def test_fit_accepts_generic_solver(monkeypatch):
@@ -107,7 +107,7 @@ def test_default_selection_contract():
 
 def test_solver_fit_score_defaults_empty():
     """Solvers without their own scores contribute nothing to the score dict."""
-    assert SolverResult(np.empty((2, 3))).score(Mock(), Mock()) == {}
+    assert SolverFit(np.empty((2, 3))).score(Mock(), Mock()) == {}
 
 
 def test_whitening_guard():
