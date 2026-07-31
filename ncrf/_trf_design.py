@@ -56,8 +56,6 @@ def stim_dimensions(stim: Sequence[NDVar]) -> list[StimDimensions | None]:
     return dims
 
 
-# eq=False: the array fields make a generated __eq__ raise instead of returning a
-# bool, and an identity comparison is what callers of assert_compatible() want.
 @dataclass(frozen=True, eq=False, repr=False)
 class TRFDesign:
     """Stimulus and basis metadata defining the coefficient space.

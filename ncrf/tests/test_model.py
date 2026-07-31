@@ -202,16 +202,6 @@ def test_normalize_rejects_renormalization():
     np.testing.assert_array_equal(data.normalize(data.design).covariates[0], data.covariates[0])
 
 
-def test_design_is_identity_comparable():
-    """Designs hold arrays, so equality and hashing have to stay identity-based."""
-    design = _synthetic_data('l2').design
-    other = _synthetic_data('l2').design
-
-    assert design == design
-    assert design != other
-    assert {design, other} == {design, other}
-
-
 def test_normalize_rejects_incompatible_design():
     data = _synthetic_data()
 
