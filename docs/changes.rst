@@ -24,6 +24,11 @@ fitted model is applied to new data (see :doc:`guide`).
 - Every ``scale`` also subtracts each predictor's mean. Previously the mean was only
   subtracted with ``normalize``, so the default fit scaled the covariates without
   centering the predictors; it now centers them.
+- **Bug fix:** :attr:`ncrf.NCRF.h_scaled` undid the covariate scaling in the wrong
+  direction. The covariates are divided by the scale, so restoring stimulus units
+  requires dividing ``h`` by it as well, but ``h_scaled`` multiplied instead. Values
+  obtained with ``normalize='l1'`` or ``normalize='l2'`` were therefore off by the
+  square of the scale factor.
 - :attr:`ncrf.NCRF.h_scaled` now also undoes spectral scaling; previously ``h``
   from a post-normalized fit was not in stimulus units.
 - Spectral scaling is now also applied to data with a single covariate channel,
