@@ -99,8 +99,16 @@ class ForwardModel:
             If ``data`` has different sensors than the forward model, or is
             already whitened and ``accept_whitening`` is false.
         """
-        if list(data.sensor_dim.names) != list(self.sensor.names):
-            raise ValueError(f"data sensors do not match the forward model (data: {len(data.sensor_dim)} channels, forward model: {len(self.sensor)}); the whitening filter and the lead field are ordered by channel, so the forward model has to be built for exactly these sensors, e.g. lead_field.sub(sensor=data.sensor_dim)")
+        data_names = list(data.sensor_dim.names)
+        model_names = list(self.sensor.names)
+        if data_names != model_names:
+            only_data = [name for name in data_names if name not in set(model_names)]
+            only_model = [name for name in model_names if name not in set(data_names)]
+            if only_data or only_model:
+                difference = f"only in data: {only_data or 'none'}; only in forward model: {only_model or 'none'}"
+            else:
+                difference = f"same channels in a different order; data starts with {data_names[:3]}, forward model with {model_names[:3]}"
+            raise ValueError(f"data sensors do not match the forward model ({difference}); the whitening filter and the lead field are indexed by channel position, so the forward model has to be built for exactly these sensors, e.g. lead_field.sub(sensor=data.sensor_dim)")
         return data.whiten(self.whitening_filter, accept_whitening=accept_whitening)
 
     def _prewhiten(self) -> None:

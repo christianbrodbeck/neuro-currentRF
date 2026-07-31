@@ -248,10 +248,15 @@ def test_rejects_sensor_mismatch():
     reordered = replace(data, sensor_dim=Sensor([[0., 0, 1], [0, 1, 0], [1, 0, 0]], ['c', 'b', 'a']))
 
     model = _model(data.design, data.design.n_coefficients)
-    with pytest.raises(ValueError, match="sensors do not match"):
+    with pytest.raises(ValueError, match="same channels in a different order"):
         model.predict(reordered)
-    with pytest.raises(ValueError, match="sensors do not match"):
+    with pytest.raises(ValueError, match="same channels in a different order"):
         model.evaluate(reordered)
+
+    # a genuinely different channel set names the channels that differ
+    renamed = replace(data, sensor_dim=Sensor([[1., 0, 0], [0, 1, 0], [0, 0, 1]], ['a', 'b', 'z']))
+    with pytest.raises(ValueError, match=r"only in data: \['z'\]; only in forward model: \['c'\]"):
+        model.predict(renamed)
 
     estimator = NCRFEstimator.__new__(NCRFEstimator)
     estimator.forward = model.forward
