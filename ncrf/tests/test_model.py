@@ -238,7 +238,24 @@ def test_h_scaled():
             assert h_scaled is h
             continue
         for i, factor in enumerate(data.design.stim_scaling):
-            np.testing.assert_allclose(h_scaled[i].x, h[i].x * factor)
+            np.testing.assert_allclose(h_scaled[i].x, h[i].x / factor)
+
+
+def test_h_scaled_matches_unscaled_fit():
+    """h_scaled equals the h of an equivalent model whose covariates were not scaled."""
+    scaled = _synthetic_data('l2')
+    design = scaled.design
+    centered = _synthetic_data().normalize(replace(design, stim_scaling=None, scale=None))
+    model = _model(design, design.n_coefficients)
+    # coefficients on the unscaled covariates that make the same predictions
+    unscaled_model = NCRF(model.forward, model.theta / design.expand(design.stim_scaling), centered.design)
+
+    for expected, actual in zip(model.predict(scaled), unscaled_model.predict(centered)):
+        np.testing.assert_allclose(expected, actual)
+    # h of the unscaled fit is already in stimulus units
+    assert unscaled_model.h_scaled is unscaled_model.h
+    for expected, actual in zip(unscaled_model.h, model.h_scaled):
+        np.testing.assert_allclose(actual.x, expected.x)
 
 
 def test_gaussian_basis():

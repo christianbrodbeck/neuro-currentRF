@@ -206,6 +206,10 @@ class NCRF:
         Expands the Gabor coefficients in :attr:`theta` back into labeled response
         functions, one per predictor variable (or a bare NDVar when the model was
         fit on a single predictor).
+
+        ``h`` is in source-current units per unit of the *normalized* covariates
+        the model was fit on (``scale`` argument). Use :attr:`~ncrf.NCRF.h_scaled`
+        for the response in units of the original stimulus.
         """
         design = self.design
         space = self.forward.space
@@ -231,13 +235,19 @@ class NCRF:
 
     @cached_property
     def h_scaled(self) -> NDVar | list[NDVar]:
-        """:attr:`~ncrf.NCRF.h` with the original stimulus scaling restored."""
+        """:attr:`~ncrf.NCRF.h` with the covariate normalization undone.
+
+        In source-current units per unit of the *original* stimulus, and hence
+        comparable across predictors and across models fit with different
+        ``scale``. Identical to :attr:`~ncrf.NCRF.h` when the covariates were not
+        scaled.
+        """
         if self.design.stim_scaling is None:
             return self.h
         scaling = self.design.per_predictor(self.design.stim_scaling)
         if self.design.stim_is_single:
-            return self.h * scaling[0]
-        return [h * s for h, s in zip(self.h, scaling)]
+            return self.h / scaling[0]
+        return [h / s for h, s in zip(self.h, scaling)]
 
 
 class NCRFEstimator:
