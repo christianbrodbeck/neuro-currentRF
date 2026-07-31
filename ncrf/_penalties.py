@@ -44,8 +44,10 @@ def proxg_group_opt(z: FloatArray, mu: float) -> FloatArray:
                     x_s = max(1 - mu/||z_s||, 0) z_s
 
     Wrapper for the Cython kernel. The three orientation components per source
-    (fixed ``dc == 3``) are grouped along a reshaped view; the shrinkage is
-    written into that view in place, so the returned array shares ``z``'s buffer.
+    (fixed ``dc == 3``) are grouped along a reshaped array. For a contiguous ``z``
+    that reshape is a view, so the shrinkage overwrites ``z`` and the return value
+    shares its buffer; otherwise it is a copy and ``z`` is left unchanged. Callers
+    must therefore treat ``z`` as consumed and use only the return value.
     """
     l = z.shape[1]
     z3 = z.reshape(-1, 3, l)
