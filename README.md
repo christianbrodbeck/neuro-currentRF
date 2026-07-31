@@ -32,7 +32,7 @@ returns all requested metrics. Solver-specific state is available as
 ## How to use:
 run
 ```python
-result = fit_ncrf(meg, stim, lead_field, noise, mu='auto', tstop=1.0, nlevels=2, n_splits=3, normalize='l1')
+result = fit_ncrf(meg, stim, lead_field, noise, mu='auto', tstop=1.0, nlevels=2, n_splits=3, scale='l1')
 ```
 to perform a 3-fold cross-validation and then construct the model for 1s long TRF with the regularization weight among the given range that gives least generalization error. The signature of the ``meg`` and ``stim`` could be as follows:
 
