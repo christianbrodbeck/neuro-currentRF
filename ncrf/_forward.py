@@ -76,28 +76,22 @@ class ForwardModel:
         dc = self.dc
         return slice(i * dc, (i + 1) * dc)
 
-    def whiten(
-            self,
-            data: RegressionData,
-            accept_whitening: bool = False,
-    ) -> RegressionData:
-        """Whiten ``data`` with :attr:`whitening_filter`, after checking sensor alignment.
+    def assert_sensors(self, data: RegressionData) -> None:
+        """Check that ``data`` has this forward model's sensors, in the same order.
+
+        The whitening filter and the lead field are indexed by channel position,
+        not by name, so anything but an exact match silently attributes the data
+        of one channel to another.
 
         Parameters
         ----------
         data
-            Dataset to whiten. Its channel names have to match those of
-            :attr:`sensor`, in the same order, because the whitening filter and
-            the lead field are indexed by channel position, not by name.
-        accept_whitening
-            Return an already-whitened dataset unchanged (see
-            :meth:`RegressionData.whiten`).
+            Dataset to check.
 
         Raises
         ------
         ValueError
-            If ``data`` has different sensors than the forward model, or is
-            already whitened and ``accept_whitening`` is false.
+            If ``data`` has different sensors than the forward model.
         """
         data_names = list(data.sensor_dim.names)
         model_names = list(self.sensor.names)
@@ -109,6 +103,29 @@ class ForwardModel:
             else:
                 difference = f"same channels in a different order; data starts with {data_names[:3]}, forward model with {model_names[:3]}"
             raise ValueError(f"data sensors do not match the forward model ({difference}); the whitening filter and the lead field are indexed by channel position, so the forward model has to be built for exactly these sensors, e.g. lead_field.sub(sensor=data.sensor_dim)")
+
+    def whiten(
+            self,
+            data: RegressionData,
+            accept_whitening: bool = False,
+    ) -> RegressionData:
+        """Whiten ``data`` with :attr:`whitening_filter`, after checking sensor alignment.
+
+        Parameters
+        ----------
+        data
+            Dataset to whiten; its sensors have to match :meth:`assert_sensors`.
+        accept_whitening
+            Return an already-whitened dataset unchanged (see
+            :meth:`RegressionData.whiten`).
+
+        Raises
+        ------
+        ValueError
+            If ``data`` has different sensors than the forward model, or is
+            already whitened and ``accept_whitening`` is false.
+        """
+        self.assert_sensors(data)
         return data.whiten(self.whitening_filter, accept_whitening=accept_whitening)
 
     def _prewhiten(self) -> None:

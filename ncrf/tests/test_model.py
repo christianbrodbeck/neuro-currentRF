@@ -51,10 +51,16 @@ def test_fit_accepts_generic_solver(monkeypatch):
     estimator = NCRFEstimator.__new__(NCRFEstimator)
     data = MagicMock()
     estimator.forward = Mock(
+        # unsafe: Mock rejects attributes named assert_* unless told otherwise
+        unsafe=True,
         whiten=Mock(return_value=data),
         whitened_lead_field=np.ones((1, 1)),
+        lead_field=np.ones((1, 1)),
+        lead_field_scaling=1.0,
     )
     data.design = Mock()
+    data.covariates = [np.ones((4, 1))]
+    data.norm_factor = 1.0
     data.__iter__.side_effect = lambda: iter([
         (np.arange(4, dtype=float)[None, :], np.ones((4, 1))),
     ])
@@ -69,7 +75,7 @@ def test_fit_accepts_generic_solver(monkeypatch):
         'explained_variance': pytest.approx(0),
         'l2_error': pytest.approx(7),
     }
-    prediction = result.model.predict(data, accept_whitening=True)
+    prediction = result.model.predict(data)
     np.testing.assert_array_equal(prediction[0], np.zeros((1, 4)))
 
     candidates = (Mock(), Mock())
@@ -230,6 +236,24 @@ def test_predict_requires_fit_normalization():
 
     for expected, actual in zip(model.predict(normalized), model.predict(raw.normalize(model.design))):
         np.testing.assert_allclose(expected, actual)
+
+
+def test_predict_returns_meg_scale():
+    """predict() is in the units of the MEG data; whitened=True gives the fitting space."""
+    data = _synthetic_data('l2')
+    model = _model(data.design, data.design.n_coefficients)
+    forward = model.forward
+
+    predicted = model.predict(data)
+    whitened = model.predict(data, whitened=True)
+
+    assert not np.allclose(predicted[0], whitened[0])
+    for meg_scale, fit_scale in zip(predicted, whitened):
+        # whitening and dividing by sqrt(n_times) is exactly what from_data() applied
+        np.testing.assert_allclose(np.dot(forward.whitening_filter, meg_scale) / data.norm_factor, fit_scale)
+    # whitening the input does not change the prediction, which only uses covariates
+    for expected, actual in zip(predicted, model.predict(forward.whiten(data))):
+        np.testing.assert_array_equal(expected, actual)
 
 
 def test_predict_rejects_mismatched_normalization():

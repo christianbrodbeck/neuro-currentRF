@@ -106,9 +106,12 @@ class NCRF:
             self,
             data: RegressionData,
             *,
-            accept_whitening: bool = False,
+            whitened: bool = False,
     ) -> list[FloatArray]:
-        """Predict whitened sensor-space data for each segment.
+        """Predict sensor-space data for each segment.
+
+        Only the covariates are used, so it does not matter whether ``data`` has
+        been whitened.
 
         Parameters
         ----------
@@ -116,9 +119,10 @@ class NCRF:
             Prepared dataset with a design compatible with the training data, and
             carrying the same normalization (prepare it with ``scale=None`` and
             apply :meth:`~ncrf.RegressionData.normalize` with :attr:`design`).
-        accept_whitening
-            Set to ``True`` only when this model's whitening filter was already
-            applied to ``data``.
+        whitened
+            Predict in the whitened, variance-normalized sensor space the model is
+            fit in, i.e. the space :meth:`evaluate` scores in, rather than in the
+            units of the original M/EEG data.
 
         Returns
         -------
@@ -126,9 +130,15 @@ class NCRF:
             Predicted arrays, one per segment, each shaped
             ``(n_sensors, n_times)``.
         """
-        data = self.forward.whiten(data, accept_whitening)
+        self.forward.assert_sensors(data)
         theta = self._theta_for(data)
-        return [self._predict_whitened(theta, covariate) for _, covariate in data]
+        if whitened:
+            return [self._predict_whitened(theta, covariate) for covariate in data.covariates]
+        # Predicting through the un-whitened lead field, and undoing the sqrt(n_times)
+        # by which both MEG and covariates were divided, puts the prediction back into
+        # the units of the M/EEG data the dataset was built from.
+        source = np.dot(self.forward.lead_field, theta) / self.forward.lead_field_scaling
+        return [np.dot(source, covariate.T) * data.norm_factor for covariate in data.covariates]
 
     def evaluate(
             self,
@@ -140,7 +150,10 @@ class NCRF:
         """Score predictions on ``data`` with one or more metrics.
 
         The data is whitened and predicted once, and every metric is evaluated on
-        those predictions.
+        those predictions. Scoring happens in whitened sensor space, where the noise
+        is isotropic and channels are therefore comparable; this is the space the
+        solver optimizes in and the one cross-validation compares candidates in. Use
+        ``predict(data, whitened=True)`` to obtain the predictions the metrics see.
 
         Parameters
         ----------

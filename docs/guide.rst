@@ -88,3 +88,17 @@ carries a different normalization, or when its design describes different
 predictors, TRF timings, or a different basis. Normalizing data that is already
 normalized is a no-op when the values agree, and an error otherwise, so a dataset
 can safely be passed to :meth:`~ncrf.RegressionData.normalize` more than once.
+
+Prediction units
+^^^^^^^^^^^^^^^^
+
+:meth:`~ncrf.NCRF.predict` returns predictions in the units of the M/EEG data the
+dataset was built from, so they can be compared with the original recording
+directly.
+
+:meth:`~ncrf.NCRF.evaluate` instead scores in *whitened* sensor space, where the
+noise covariance is the identity and channels are therefore comparable. This is
+the space the solver optimizes in and the one cross-validation compares
+candidates in, which is what makes ``result.scores`` and the cross-validation
+scores commensurable. Pass ``whitened=True`` to :meth:`~ncrf.NCRF.predict` to see
+the predictions the metrics are computed on.
