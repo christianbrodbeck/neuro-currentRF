@@ -26,7 +26,6 @@ from ._solvers import ChampLasso, Solver
 from ._typing import MuArg, ScaleArg
 
 
-DEFAULT_MUs = np.logspace(-3, -1, 7)
 StimulusInput: TypeAlias = NDVar | Sequence[NDVar]
 TrialStimulusInput: TypeAlias = StimulusInput | Sequence[StimulusInput]
 MegInput: TypeAlias = NDVar | Sequence[NDVar]
