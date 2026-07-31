@@ -12,12 +12,16 @@ import pytest
 from ncrf import CrossValidation, SolverFit
 from ncrf._crossvalidation import CVResult
 from ncrf._data import RegressionData, covariate_from_stim
+from ncrf._forward import ForwardModel
 from ncrf._linalg import gaussian_basis
 from ncrf._model import NCRFEstimator, NCRF
 from ncrf._solvers import Solver
 from .fetch import load
 
 from eelbrain import Categorial, NDVar, Scalar, Sensor, UTS, concatenate
+
+
+SENSOR = Sensor([[1., 0, 0], [0, 1, 0], [0, 0, 1]], ['a', 'b', 'c'])
 
 
 def test_fit_model():
@@ -45,12 +49,11 @@ class _ZeroSolver(Solver):
 
 def test_fit_accepts_generic_solver(monkeypatch):
     estimator = NCRFEstimator.__new__(NCRFEstimator)
+    data = MagicMock()
     estimator.forward = Mock(
-        whitening_filter=object(),
+        whiten=Mock(return_value=data),
         whitened_lead_field=np.ones((1, 1)),
     )
-    data = MagicMock()
-    data.whiten.return_value = data
     data.design = Mock()
     data.__iter__.side_effect = lambda: iter([
         (np.arange(4, dtype=float)[None, :], np.ones((4, 1))),
@@ -113,17 +116,17 @@ def test_solver_fit_score_defaults_empty():
 def test_whitening_guard():
     data = RegressionData.__new__(RegressionData)
     data.is_whitened = True
+    data.sensor_dim = SENSOR
     whitening_filter = object()
 
     with pytest.raises(ValueError, match="pass accept_whitening=True"):
         data.whiten(whitening_filter)
     assert data.whiten(whitening_filter, accept_whitening=True) is data
 
-    model = NCRF.__new__(NCRF)
-    model.forward = Mock(whitening_filter=whitening_filter)
+    forward = _forward()
     with pytest.raises(ValueError, match="pass accept_whitening=True"):
-        model._whiten(data)
-    assert model._whiten(data, accept_whitening=True) is data
+        forward.whiten(data)
+    assert forward.whiten(data, accept_whitening=True) is data
 
 
 def _synthetic_data(
@@ -135,8 +138,7 @@ def _synthetic_data(
     """Two-predictor dataset on strongly mismatched stimulus scales."""
     rng = np.random.RandomState(seed)
     time = UTS(0, 0.01, 200)
-    sensor = Sensor([[1., 0, 0], [0, 1, 0], [0, 0, 1]], ['a', 'b', 'c'])
-    meg = [NDVar(rng.normal(size=(3, 200)), (sensor, time))]
+    meg = [NDVar(rng.normal(size=(3, 200)), (SENSOR, time))]
     stim = [[
         NDVar(rng.normal(size=200) * 100 + 20, (time,), name=names[0]),
         NDVar(rng.normal(size=200) * 0.01 + 0.5, (time,), name=names[1]),
@@ -144,16 +146,15 @@ def _synthetic_data(
     return RegressionData.from_data(meg, stim, 0, tstop, scale=scale)
 
 
+def _forward(seed: int = 1) -> ForwardModel:
+    """Forward model for the sensors of :func:`_synthetic_data`, with 4 sources."""
+    rng = np.random.RandomState(seed)
+    return ForwardModel(rng.normal(size=(3, 4)), np.eye(3), Scalar('source', range(4)), SENSOR, None)
+
+
 def _model(design, n_coefficients: int, seed: int = 1) -> NCRF:
     rng = np.random.RandomState(seed)
-    forward = Mock(
-        whitening_filter=np.eye(3),
-        whitened_lead_field=rng.normal(size=(3, 4)),
-        source=Scalar('source', range(4)),
-        space=None,
-        lead_field_scaling=1.,
-    )
-    return NCRF(forward, rng.normal(size=(4, n_coefficients)), design)
+    return NCRF(_forward(seed), rng.normal(size=(4, n_coefficients)), design)
 
 
 @pytest.mark.parametrize('scale', ['l1', 'l2', 'spectral'])
@@ -226,6 +227,24 @@ def test_predict_rejects_mismatched_normalization():
 
     with pytest.raises(ValueError, match="different centering"):
         model.predict(other)
+
+
+def test_rejects_sensor_mismatch():
+    """Data whose sensors differ from the forward model must not be whitened silently."""
+    data = _synthetic_data('l2')
+    # same channels in a different order: whitening would apply to the wrong channels
+    reordered = replace(data, sensor_dim=Sensor([[0., 0, 1], [0, 1, 0], [1, 0, 0]], ['c', 'b', 'a']))
+
+    model = _model(data.design, data.design.n_coefficients)
+    with pytest.raises(ValueError, match="sensors do not match"):
+        model.predict(reordered)
+    with pytest.raises(ValueError, match="sensors do not match"):
+        model.evaluate(reordered)
+
+    estimator = NCRFEstimator.__new__(NCRFEstimator)
+    estimator.forward = model.forward
+    with pytest.raises(ValueError, match="sensors do not match"):
+        estimator.fit(reordered, _ZeroSolver())
 
 
 def test_h_scaled():

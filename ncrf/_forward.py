@@ -7,6 +7,7 @@ from eelbrain import NDVar, Sensor, SourceSpace, Space, VolumeSourceSpace
 import numpy as np
 from scipy import linalg
 
+from ._data import RegressionData
 from ._linalg import _inv_sqrtm
 from ._repr import _forward_summary
 from ._typing import FloatArray
@@ -74,6 +75,33 @@ class ForwardModel:
         """Column/row slice of source ``i``'s orientation components in stacked arrays."""
         dc = self.dc
         return slice(i * dc, (i + 1) * dc)
+
+    def whiten(
+            self,
+            data: RegressionData,
+            accept_whitening: bool = False,
+    ) -> RegressionData:
+        """Whiten ``data`` with :attr:`whitening_filter`, after checking sensor alignment.
+
+        Parameters
+        ----------
+        data
+            Dataset to whiten. Its channel names have to match those of
+            :attr:`sensor`, in the same order, because the whitening filter and
+            the lead field are indexed by channel position, not by name.
+        accept_whitening
+            Return an already-whitened dataset unchanged (see
+            :meth:`RegressionData.whiten`).
+
+        Raises
+        ------
+        ValueError
+            If ``data`` has different sensors than the forward model, or is
+            already whitened and ``accept_whitening`` is false.
+        """
+        if list(data.sensor_dim.names) != list(self.sensor.names):
+            raise ValueError(f"data sensors do not match the forward model (data: {len(data.sensor_dim)} channels, forward model: {len(self.sensor)}); the whitening filter and the lead field are ordered by channel, so the forward model has to be built for exactly these sensors, e.g. lead_field.sub(sensor=data.sensor_dim)")
+        return data.whiten(self.whitening_filter, accept_whitening=accept_whitening)
 
     def _prewhiten(self) -> None:
         """Compute whitened derived quantities from ``lead_field`` and ``noise_covariance``.

@@ -80,14 +80,6 @@ class NCRF:
         predictors = tuple(self.design.stim_names)
         return f"<{type(self).__name__}: {_forward_summary(self.forward)}, {_count_repr(n_basis, 'basis coefficient')}, {predictors=}>"
 
-    def _whiten(
-            self,
-            data: RegressionData,
-            accept_whitening: bool = False,
-    ) -> RegressionData:
-        """Whiten ``data``, optionally accepting a previously whitened dataset."""
-        return data.whiten(self.forward.whitening_filter, accept_whitening=accept_whitening)
-
     def _theta_for(self, data: RegressionData) -> FloatArray:
         """Coefficients, after checking that ``data`` is on the scale they were fit on.
 
@@ -134,7 +126,7 @@ class NCRF:
             Predicted arrays, one per segment, each shaped
             ``(n_sensors, n_times)``.
         """
-        data = self._whiten(data, accept_whitening)
+        data = self.forward.whiten(data, accept_whitening)
         theta = self._theta_for(data)
         return [self._predict_whitened(theta, covariate) for _, covariate in data]
 
@@ -163,7 +155,7 @@ class NCRF:
             Set to ``True`` only when the model's whitening filter was already
             applied to ``data``.
         """
-        data = self._whiten(data, accept_whitening)
+        data = self.forward.whiten(data, accept_whitening)
         theta = self._theta_for(data)
         observed = [meg for meg, _ in data]
         predicted = [self._predict_whitened(theta, covariate) for _, covariate in data]
@@ -181,7 +173,7 @@ class NCRF:
         :meth:`predict`). Set ``accept_whitening=True`` only when the model's
         whitening filter was applied to ``data``.
         """
-        data = self._whiten(data, accept_whitening)
+        data = self.forward.whiten(data, accept_whitening)
         theta = self._theta_for(data)
         W_leadfield = self.forward.whitened_lead_field
         temp = np.zeros(len(self.forward.source))
@@ -314,8 +306,9 @@ class NCRFEstimator:
         Parameters
         ----------
         data
-            Prepared M/EEG data and corresponding basis-projected covariates.
-            The input object is not mutated.
+            Prepared M/EEG data and corresponding basis-projected covariates,
+            with the same channels in the same order as the lead field. The
+            input object is not mutated.
         solver
             Solver configuration. Solvers that expose multiple candidates are
             selected through cross-validation before the final fit.
@@ -338,10 +331,7 @@ class NCRFEstimator:
             Fitted model, selected solver, solver state, training scores, and
             optional cross-validation and source-wise diagnostics.
         """
-        data = data.whiten(
-            self.forward.whitening_filter,
-            accept_whitening=accept_whitening,
-        )
+        data = self.forward.whiten(data, accept_whitening)
 
         candidates = solver.candidates(self.forward, data)
         if not candidates:
