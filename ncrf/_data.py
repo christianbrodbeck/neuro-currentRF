@@ -322,10 +322,10 @@ class RegressionData:
         if scale is not None:
             baseline, stim_scaling = get_scaling(stim, design.stim_lens, scale)
             # Center first, so that spectral norms are measured on centered covariates
-            data.normalize(replace(design, stim_baseline=baseline), inplace=True)
+            data = data.normalize(replace(design, stim_baseline=baseline))
             if scale == 'spectral':
                 stim_scaling = data._spectral_norms()
-            data.normalize(replace(data.design, stim_scaling=stim_scaling, scale=scale), inplace=True)
+            data = data.normalize(replace(data.design, stim_scaling=stim_scaling, scale=scale))
         return data
 
     def __iter__(self) -> Iterator[TrialData]:
@@ -366,13 +366,8 @@ class RegressionData:
         norms = [[linalg.norm(block, 2) for block in np.split(cov, splits, axis=1)] for cov in self.covariates]
         return np.array(norms).mean(axis=0)
 
-    def normalize(
-            self,
-            design: TRFDesign,
-            *,
-            inplace: bool = False,
-    ) -> RegressionData:
-        """Apply the centering and scaling recorded in ``design`` to the covariates.
+    def normalize(self, design: TRFDesign) -> RegressionData:
+        """Return a dataset carrying the centering and scaling recorded in ``design``.
 
         Normalization is a linear operation on the covariates, so applying it here
         is equivalent to applying it to the stimulus before covariate construction.
@@ -387,9 +382,13 @@ class RegressionData:
             Design specifying the normalization to apply; it must describe the same
             coefficient space as this dataset's design. Steps this dataset already
             carries are skipped, so normalizing twice is a no-op.
-        inplace
-            Modify this dataset's covariates instead of copies of them (default
-            ``False``).
+
+        Notes
+        -----
+        The covariates are never modified in place. :meth:`whiten` hands out a
+        dataset that shares covariate arrays with this one, and writing through
+        them would leave the other dataset carrying a normalization that its own
+        ``design`` does not record.
 
         Raises
         ------
@@ -402,8 +401,10 @@ class RegressionData:
         scaling = _pending(self.design.stim_scaling, design.stim_scaling, 'scaling')
         if self.design.stim_scaling is not None and self.design.scale != design.scale:
             raise ValueError(f"data covariates carry {self.design.scale!r} scaling, the design specifies {design.scale!r}")
+        if baseline is None and scaling is None:
+            return replace(self, design=design)
 
-        covariates = self.covariates if inplace else [cov.copy() for cov in self.covariates]
+        covariates = [cov.copy() for cov in self.covariates]
         if baseline is not None:
             # Every retained row has a full lag window, so subtracting a constant from
             # the stimulus offsets each covariate column by a constant.
@@ -414,13 +415,7 @@ class RegressionData:
             factors = design.expand(scaling)
             for cov in covariates:
                 cov /= factors
-
-        if not inplace:
-            return replace(self, covariates=covariates, design=design)
-        self.design = design
-        for attr in ('bE', 'EtE'):
-            self.__dict__.pop(attr, None)
-        return self
+        return replace(self, covariates=covariates, design=design)
 
     def whiten(
             self,

@@ -88,4 +88,3 @@ carries a different normalization, or when its design describes different
 predictors, TRF timings, or a different basis. Normalizing data that is already
 normalized is a no-op when the values agree, and an error otherwise, so a dataset
 can safely be passed to :meth:`~ncrf.RegressionData.normalize` more than once.
-For large datasets, ``inplace=True`` avoids copying the covariates.

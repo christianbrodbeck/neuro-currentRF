@@ -170,18 +170,20 @@ def test_normalize_matches_from_data(scale):
     np.testing.assert_allclose(raw.covariates[0], _synthetic_data().covariates[0])
 
 
-def test_normalize_inplace():
+def test_normalize_does_not_write_through_shared_covariates():
+    """Datasets sharing covariate arrays must not be normalized behind each other's back."""
     data = _synthetic_data()
     design = _synthetic_data('l2').design
-    covariates = data.covariates[0]
-    EtE = data.EtE
+    before = data.covariates[0].copy()
 
-    assert data.normalize(design, inplace=True) is data
-    assert data.covariates[0] is covariates
-    assert data.design is design
-    # quadratic forms derived from the covariates are recomputed
-    assert data.EtE is not EtE
-    np.testing.assert_allclose(data.covariates[0], _synthetic_data('l2').covariates[0])
+    whitened = data.whiten(np.eye(3))
+    assert whitened.covariates[0] is data.covariates[0]  # whitening only copies meg
+    normalized = whitened.normalize(design)
+
+    np.testing.assert_allclose(normalized.covariates[0], _synthetic_data('l2').covariates[0])
+    # the dataset the whitened view was derived from is untouched
+    np.testing.assert_array_equal(data.covariates[0], before)
+    assert data.design.stim_scaling is None
 
 
 def test_normalize_rejects_renormalization():
