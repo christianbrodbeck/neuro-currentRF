@@ -502,8 +502,6 @@ class ChampLasso(Solver):
         (default ``True``).
     """
 
-    criterion = 'cross_fit'
-
     mu: MuArg = 'auto'
     n_iter: int = 30
     n_iterc: int = 10
