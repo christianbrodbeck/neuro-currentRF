@@ -36,8 +36,10 @@ if TYPE_CHECKING:
     from .._crossvalidation import CVResult
     from .base import ScoreCandidates
 
-#: Per-iteration storage flags, shared by :class:`ChampLasso` and :class:`ChampLassoHistory`.
-_STORE_FIELDS = ('store_objective', 'store_residual', 'store_theta', 'store_gamma', 'store_sigma_b')
+#: Per-iteration quantities :class:`ChampLasso` can record, in :class:`ChampLassoHistory`.
+QUANTITIES = ('objective', 'residual', 'theta', 'gamma', 'sigma_b')
+#: The matching :class:`ChampLasso` storage flags.
+_STORE_FIELDS = tuple(f'store_{name}' for name in QUANTITIES)
 
 
 @dataclass(repr=False)
@@ -78,10 +80,14 @@ class ChampLassoHistory:
     sigma_b: list = field(default_factory=list)
 
     def __repr__(self) -> str:
-        quantities = (self.objective, self.residual, self.theta, self.gamma, self.sigma_b)
-        n_iterations = max(map(len, quantities), default=0)
+        n_iterations = self.n_iterations
         stored = tuple(name.removeprefix('store_') for name in _STORE_FIELDS if getattr(self, name))
         return f'<{type(self).__name__}: {_count_repr(n_iterations, "iteration")}, {stored=}>'
+
+    @property
+    def n_iterations(self) -> int:
+        """Number of outer iterations that any quantity was recorded for."""
+        return max((len(getattr(self, name)) for name in QUANTITIES), default=0)
 
     def record(
             self,
@@ -418,9 +424,7 @@ class ChampLassoFit(SolverFit):
 
     def __repr__(self) -> str:
         n_components, n_basis = self.theta.shape
-        quantities = (self.history.objective, self.history.residual, self.history.theta, self.history.gamma, self.history.sigma_b)
-        n_iterations = max(map(len, quantities), default=0)
-        return f"<{type(self).__name__}: {_count_repr(n_components, 'source component')}, {_count_repr(n_basis, 'basis coefficient')}, {_count_repr(n_iterations, 'iteration')}, {_count_repr(len(self.sigma_b), 'segment')}>"
+        return f"<{type(self).__name__}: {_count_repr(n_components, 'source component')}, {_count_repr(n_basis, 'basis coefficient')}, {_count_repr(self.history.n_iterations, 'iteration')}, {_count_repr(len(self.sigma_b), 'segment')}>"
 
     def score(
             self,
