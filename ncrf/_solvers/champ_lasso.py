@@ -207,8 +207,10 @@ class _ChampLassoState:
             gamma = np.reshape(gamma, (-1, self.forward.dc))
             self._init_gamma.append([np.diag(g) for g in gamma])
             self._init_sigma_b.append(self.forward.whitened_noise_covariance + data_cov)
-        # working estimate, seeded from the above
-        self.Gamma = [copy.deepcopy(g) for g in self._init_gamma]
+        # Working estimate. _solve() replaces Gamma[key] wholesale rather than
+        # writing into it, so the seeds can be shared; Sigma_b is read by
+        # _construct_f() before the first covariance update, hence the copy.
+        self.Gamma = list(self._init_gamma)
         self.Sigma_b = [s.copy() for s in self._init_sigma_b]
         self.theta = np.zeros((self.forward.lead_field.shape[1], data.design.n_coefficients), dtype=np.float64)
 
