@@ -251,9 +251,20 @@ class TimeSeriesSplit:
             yield train_mask, test_mask
 
     def split(self, X: Sequence[object] | FloatArray) -> Iterator[tuple[np.ndarray, np.ndarray]]:
-        """Yield integer index arrays for each validation split."""
+        """Yield integer index arrays for each validation split.
+
+        Raises
+        ------
+        ValueError
+            If ``X`` is too short to leave any training samples once the
+            validation windows and the gap between them are removed.
+        """
         indices = np.arange(len(X))
         for (train_mask, test_mask) in self._iter_part_masks(X):
             train_index = indices[train_mask]
             test_index = indices[test_mask]
+            if not len(train_index):
+                # Silently yielding an empty fold would divide the data by
+                # sqrt(0) in RegressionData.timeslice()
+                raise ValueError(f"{len(X)} samples are not enough for {self.p} cross-validation folds with a {self.d}-sample gap; use fewer folds, a shorter TRF, or more data")
             yield train_index, test_index

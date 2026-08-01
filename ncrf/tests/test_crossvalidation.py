@@ -94,6 +94,16 @@ def test_score_candidate_uses_estimator_fit_primitive(monkeypatch):
     }
 
 
+def test_time_series_split_rejects_empty_training_window():
+    splitter = cv.TimeSeriesSplit(r=0.05, p=3, d=100)
+
+    train, test = next(splitter.split(np.empty(400)))
+    assert (len(train), len(test)) == (240, 20)
+
+    with pytest.raises(ValueError, match="110 samples are not enough for 3 cross-validation folds"):
+        list(splitter.split(np.empty(110)))
+
+
 def test_refine_mu_grid():
     champ = ChampLasso(mu=0.1)
     mus = (0.1, 0.2, 0.3)
