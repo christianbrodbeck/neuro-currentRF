@@ -12,7 +12,7 @@ so that response functions can be reconstructed without keeping the full
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from eelbrain import NDVar
 import numpy as np
@@ -216,6 +216,63 @@ class TRFDesign:
             out.append(NDVar(chunk, (dim,)) if dim else float(chunk[0]))
             i += n
         return out
+
+    def assert_same_normalization(self, other: TRFDesign) -> None:
+        """Check that ``other`` records the same centering and scaling as this design.
+
+        Parameters
+        ----------
+        other
+            Design to compare against.
+
+        Raises
+        ------
+        ValueError
+            If the designs record different centering or scaling.
+        """
+        if other is self:
+            return
+        for attr, name in (('stim_baseline', 'centering'), ('stim_scaling', 'scaling')):
+            mine, theirs = getattr(self, attr), getattr(other, attr)
+            # ``is`` also covers None, and the same array carrying non-finite values,
+            # which np.array_equal() would report as unequal to itself
+            if mine is not theirs and not np.array_equal(mine, theirs):
+                raise ValueError(f"covariates carry different {name} than the design records; prepare the data with scale=None and apply the design's own normalization with data.normalize(design)")
+        if self.scale != other.scale:
+            raise ValueError(f"covariates carry {self.scale!r} scaling, the design records {other.scale!r}; prepare the data with scale=None and apply the design's own normalization with data.normalize(design)")
+
+    def pending_normalization(self, target: TRFDesign) -> tuple[FloatArray | None, FloatArray | None]:
+        """The centering and scaling of ``target`` that covariates carrying this design still need.
+
+        Parameters
+        ----------
+        target
+            Design describing the normalization the covariates should end up with.
+
+        Returns
+        -------
+        baseline
+            ``target``'s centering, or ``None`` when it is already applied.
+        scaling
+            ``target``'s scaling, or ``None`` when it is already applied.
+
+        Raises
+        ------
+        ValueError
+            If a step that is already applied differs from ``target``, since it
+            cannot be applied a second time.
+        """
+        applied = replace(
+            self,
+            stim_baseline=target.stim_baseline if self.stim_baseline is None else self.stim_baseline,
+            stim_scaling=target.stim_scaling if self.stim_scaling is None else self.stim_scaling,
+            scale=target.scale if self.stim_scaling is None else self.scale,
+        )
+        applied.assert_same_normalization(target)
+        return (
+            target.stim_baseline if self.stim_baseline is None else None,
+            target.stim_scaling if self.stim_scaling is None else None,
+        )
 
     def assert_compatible(self, other: TRFDesign) -> None:
         """Check that ``other`` describes the same coefficient space as this design.

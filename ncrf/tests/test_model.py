@@ -221,7 +221,7 @@ def test_normalize_rejects_renormalization():
     data = _synthetic_data('l2')
     other = _synthetic_data('l2', seed=2)
 
-    with pytest.raises(ValueError, match="already carry a different baseline"):
+    with pytest.raises(ValueError, match="carry different centering"):
         data.normalize(other.design)
     # applying the same normalization again is a no-op
     np.testing.assert_array_equal(data.normalize(data.design).covariates[0], data.covariates[0])

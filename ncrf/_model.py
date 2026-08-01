@@ -91,11 +91,7 @@ class NCRF:
         if design is self.design:
             return self.theta
         self.design.assert_compatible(design)
-        for attr, name in (('stim_baseline', 'centering'), ('stim_scaling', 'scaling')):
-            if not np.array_equal(getattr(design, attr), getattr(self.design, attr)):
-                raise ValueError(f"data covariates carry different {name} than the data the model was fit on; use data.normalize(model.design) to apply the model's own normalization")
-        if design.scale != self.design.scale:
-            raise ValueError(f"data covariates carry {design.scale!r} scaling, the model was fit with {self.design.scale!r}; use data.normalize(model.design) to apply the model's own normalization")
+        design.assert_same_normalization(self.design)
         return self.theta
 
     def _predict_whitened(self, theta: FloatArray, covariate: FloatArray) -> FloatArray:

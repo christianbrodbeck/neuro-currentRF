@@ -99,19 +99,6 @@ def _channel_values(
     return np.concatenate([x.x if isinstance(x, NDVar) else np.full(n, x) for x, n in zip(values, stim_lens)])
 
 
-def _pending(
-        current: FloatArray | None,
-        target: FloatArray | None,
-        name: str,
-) -> FloatArray | None:
-    """The ``target`` values still to be applied to covariates carrying ``current``."""
-    if current is None:
-        return target
-    elif target is None or not np.array_equal(current, target):
-        raise ValueError(f"data covariates already carry a different {name}; prepare the data with scale=None to apply a different normalization")
-    return None
-
-
 def _check_scaling(
         scaling: FloatArray,
         design: TRFDesign,
@@ -457,10 +444,7 @@ class RegressionData:
             that is not finite and strictly positive.
         """
         self.design.assert_compatible(design)
-        baseline = _pending(self.design.stim_baseline, design.stim_baseline, 'baseline')
-        scaling = _pending(self.design.stim_scaling, design.stim_scaling, 'scaling')
-        if self.design.stim_scaling is not None and self.design.scale != design.scale:
-            raise ValueError(f"data covariates carry {self.design.scale!r} scaling, the design specifies {design.scale!r}")
+        baseline, scaling = self.design.pending_normalization(design)
         if baseline is None and scaling is None:
             return replace(self, design=design)
 
