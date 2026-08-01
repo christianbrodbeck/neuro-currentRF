@@ -12,11 +12,6 @@ def g(x: FloatArray, mu: float) -> float:
     return mu * np.sum(np.abs(x))
 
 
-def proxg(x: FloatArray, mu: float, tau: float) -> FloatArray:
-    """Proximal operator for the l1-norm penalty."""
-    return shrink(x, mu * tau)
-
-
 def shrink(x: FloatArray, mu: float) -> FloatArray:
     """Soft-thresholding operator."""
     return np.multiply(np.sign(x), np.maximum(np.abs(x) - mu, 0))
