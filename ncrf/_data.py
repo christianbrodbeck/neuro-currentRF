@@ -164,15 +164,10 @@ def covariate_from_stim(
     ws = ws[0] if len(ws) == 1 else np.concatenate(ws, 0)
     assert len(ws) == len(Ms) == len(starts), f"Length of w ({len(ws)}), Ms ({len(Ms)}), and start ({len(starts)}) should be equal"
 
-    n_times = ws.shape[1]
     Y = []
     for w, start, M in zip(ws, starts, Ms):
-        X = np.zeros((n_times, M), dtype=w.dtype)
-        for i in range(n_times):
-            stop = i + 1
-            start_i = max(0, stop - M)
-            n = stop - start_i
-            X[i, :n] = w[start_i:stop][::-1]
+        # X[i, j] = w[i - j], zero-padded where the history runs past the start
+        X = linalg.toeplitz(w, np.zeros(M, dtype=w.dtype))
         if start != 0:
             # -ve tstart -> shift covariate matrix left
             # +ve tstart -> shift covariate matrix right
