@@ -202,6 +202,35 @@ def covariate_from_stim(
     return Y
 
 
+def _project_basis(
+        raw_covs: Sequence[FloatArray],
+        design: TRFDesign,
+        norm_factor: float,
+) -> FloatArray:
+    """Project each channel's lag matrix onto its predictor's Gaussian basis.
+
+    Parameters
+    ----------
+    raw_covs
+        Lag matrix of each expanded covariate channel, in design order.
+    design
+        Design supplying the basis of each predictor.
+    norm_factor
+        Value the covariates are divided by, matching the MEG data.
+
+    Returns
+    -------
+    ndarray
+        Covariate matrix, shape ``(n_times, n_basis_cols)``.
+    """
+    covariates = []
+    i = 0
+    for n, basis in zip(design.stim_lens, design.basis):
+        covariates.extend(np.dot(x, basis) / norm_factor for x in raw_covs[i:i + n])
+        i += n
+    return np.concatenate(covariates, axis=1).astype(np.float64)
+
+
 @dataclass(eq=False, repr=False)
 class RegressionData:
     """Prepared dataset for NCRF fitting.
@@ -337,20 +366,18 @@ class RegressionData:
         norm_factor = None
 
         for i_segment, (m, ss) in enumerate(zip(meg, stim)):
+            meg_time: UTS = m.get_dim('time')
             if m.get_dim('sensor') != sensor_dim:
                 raise ValueError(f'{meg=}: combining data segments with different sensor configurations is not supported')
-
-            meg_time: UTS = m.get_dim('time')
-            if meg_time.tstep != tstep:
+            elif meg_time.tstep != tstep:
                 raise ValueError(f"{meg=}: segment {i_segment} time-step incompatible with first segment")
-            if len(meg_time) != trial_length:
+            elif len(meg_time) != trial_length:
                 raise NotImplementedError(f"{meg=}: unequal trial length")
-
+            elif stim_dimensions(ss) != design.stim_dims:
+                raise ValueError(f"{stim=}: segment {i_segment} dimensions incompatible with first segment")
             for x in ss:
                 if x.get_dim('time') != meg_time:
                     raise ValueError(f"segment {i_segment} stim {x!r}: time axis incompatible with meg")
-            if stim_dimensions(ss) != design.stim_dims:
-                raise ValueError(f"{stim=}: segment {i_segment} dimensions incompatible with first segment")
 
             # Extract and normalize MEG array; ``y`` is divided by norm_factor below,
             # so it must not still be backed by the caller's NDVar
@@ -373,12 +400,7 @@ class RegressionData:
             y /= norm_factor
             meg_arrays.append(y)
 
-            i = 0
-            covariates = []
-            for l, b in zip(design.stim_lens, design.basis):
-                covariates.extend([np.dot(x, b) / norm_factor for x in raw_covs[i:i + l]])
-                i += l
-            covariate_arrays.append(np.concatenate(covariates, axis=1).astype(np.float64))
+            covariate_arrays.append(_project_basis(raw_covs, design, norm_factor))
 
         data = cls(meg_arrays, covariate_arrays, norm_factor, design, sensor_dim)
 
