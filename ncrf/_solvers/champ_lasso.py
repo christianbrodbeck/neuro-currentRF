@@ -26,10 +26,10 @@ from .._fastac import Fasta
 from .._data import RegressionData
 from .._forward import ForwardModel
 from .._initialization import mne_initialization
-from .._linalg import _inv_sqrtm, compute_gamma
+from .._linalg import _inv_sqrtm, _R_tol, compute_gamma
 from .._penalties import g, g_group, proxg_group_opt, shrink
 from .._repr import _count_repr
-from .._typing import _R_tol, FloatArray, GradientFunction, MuArg, ObjectiveFunction
+from .._typing import FloatArray, GradientFunction, MuArg, ObjectiveFunction
 from .base import Solver, SolverFit
 
 if TYPE_CHECKING:

@@ -1,4 +1,4 @@
-"""Shared type aliases and numeric tolerances for the NCRF package."""
+"""Shared type aliases for the NCRF package."""
 from __future__ import annotations
 
 from typing import Literal
@@ -9,7 +9,6 @@ import numpy as np
 import numpy.typing as npt
 
 
-_R_tol = np.finfo(np.float64).eps * 1e2
 FloatArray = npt.NDArray[np.float64]
 IndexArray = npt.NDArray[np.int64]
 TrialData = tuple[FloatArray, FloatArray]

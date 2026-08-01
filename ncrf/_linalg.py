@@ -13,7 +13,10 @@ import numpy.typing as npt
 from scipy import linalg
 
 from .dsyevh3C import compute_gamma_c
-from ._typing import _R_tol, FloatArray
+from ._typing import FloatArray
+
+#: Relative tolerance for treating eigenvalues and reciprocals as zero.
+_R_tol = np.finfo(np.float64).eps * 1e2
 
 
 def gaussian_basis(
