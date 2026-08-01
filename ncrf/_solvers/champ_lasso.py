@@ -37,18 +37,17 @@ if TYPE_CHECKING:
     from .base import ScoreCandidates
 
 #: Per-iteration quantities :class:`ChampLasso` can record, in :class:`ChampLassoHistory`.
+#: Each has a matching ``store_*`` flag on :class:`ChampLasso`.
 QUANTITIES = ('objective', 'residual', 'theta', 'gamma', 'sigma_b')
-#: The matching :class:`ChampLasso` storage flags.
-_STORE_FIELDS = tuple(f'store_{name}' for name in QUANTITIES)
 
 
 @dataclass(repr=False)
 class ChampLassoHistory:
     """Per-iteration quantities accumulated during fitting.
 
-    Each ``store_*`` flag selects whether the matching quantity is retained.
-    :meth:`record` appends to a list only when its flag is set, so the amount of
-    stored history can range from nothing to the full optimization trajectory.
+    :meth:`record` appends to a quantity's list only when ``store`` names it, so
+    the amount of stored history can range from nothing to the full optimization
+    trajectory.
 
     All lists are indexed by outer iteration. ``residual`` and ``theta`` are
     recorded for every iteration, whereas ``objective``, ``gamma`` and
@@ -58,21 +57,20 @@ class ChampLassoHistory:
 
     Attributes
     ----------
+    store
+        Which of :data:`QUANTITIES` to retain, set from the matching
+        :class:`ChampLasso` ``store_*`` flags.
     objective
         Objective value after each covariance update.
     residual
         Relative change in ``theta`` after each outer iteration (the convergence
         criterion).
     theta, gamma, sigma_b
-        Trajectories of the corresponding solver quantities; populated only when
-        the matching ``store_*`` flag is set. The last entry of each matches the
-        corresponding attribute of the resulting :class:`ChampLassoFit`.
+        Trajectories of the corresponding solver quantities. The last entry of
+        each matches the corresponding attribute of the resulting
+        :class:`ChampLassoFit`.
     """
-    store_objective: bool = True
-    store_residual: bool = True
-    store_theta: bool = False
-    store_gamma: bool = False
-    store_sigma_b: bool = False
+    store: frozenset[str] = frozenset({'objective', 'residual'})
     objective: list[float] = field(default_factory=list)
     residual: list[float] = field(default_factory=list)
     theta: list[FloatArray] = field(default_factory=list)
@@ -81,7 +79,7 @@ class ChampLassoHistory:
 
     def __repr__(self) -> str:
         n_iterations = self.n_iterations
-        stored = tuple(name.removeprefix('store_') for name in _STORE_FIELDS if getattr(self, name))
+        stored = tuple(name for name in QUANTITIES if name in self.store)
         return f'<{type(self).__name__}: {_count_repr(n_iterations, "iteration")}, {stored=}>'
 
     @property
@@ -89,26 +87,21 @@ class ChampLassoHistory:
         """Number of outer iterations that any quantity was recorded for."""
         return max((len(getattr(self, name)) for name in QUANTITIES), default=0)
 
-    def record(
-            self,
-            *,
-            objective: float = None,
-            residual: float = None,
-            theta: FloatArray = None,
-            gamma: object = None,
-            sigma_b: object = None,
-    ) -> None:
-        """Append the supplied quantities for which storage is enabled."""
-        if self.store_objective and objective is not None:
-            self.objective.append(objective)
-        if self.store_residual and residual is not None:
-            self.residual.append(residual)
-        if self.store_theta and theta is not None:
-            self.theta.append(theta.copy())
-        if self.store_gamma and gamma is not None:
-            self.gamma.append(copy.deepcopy(gamma))
-        if self.store_sigma_b and sigma_b is not None:
-            self.sigma_b.append(copy.deepcopy(sigma_b))
+    def record(self, **quantities: object) -> None:
+        """Append the supplied quantities that :attr:`store` names.
+
+        Parameters
+        ----------
+        quantities
+            Values to record, keyed by their name in :data:`QUANTITIES`. A
+            ``None`` value is skipped, so a caller that does not have every
+            quantity at hand can pass what it has.
+        """
+        for name, value in quantities.items():
+            if name in self.store and value is not None:
+                # deepcopy: gamma and sigma_b are lists of arrays the solver
+                # keeps updating in place
+                getattr(self, name).append(copy.deepcopy(value))
 
 
 def _is_number(value: object) -> bool:
@@ -526,7 +519,7 @@ class ChampLasso(Solver):
 
     def without_history(self) -> ChampLasso:
         """Disable all per-iteration storage for cross-validation folds."""
-        return replace(self, **{field: False for field in _STORE_FIELDS})
+        return replace(self, **{f'store_{name}': False for name in QUANTITIES})
 
     def search(
             self,
@@ -639,7 +632,7 @@ class ChampLasso(Solver):
         """Estimate NCRF weights for one prepared, whitened dataset."""
         if not _is_number(self.mu):
             raise ValueError("ChampLasso.solve() requires a fixed numeric mu; use NCRFEstimator.fit() to resolve a grid or mu='auto'")
-        history = ChampLassoHistory(**{field: getattr(self, field) for field in _STORE_FIELDS})
+        history = ChampLassoHistory(frozenset(name for name in QUANTITIES if getattr(self, f'store_{name}')))
         state = _ChampLassoState(self, forward)
         state.run(data, history, verbose)
         return ChampLassoFit(
