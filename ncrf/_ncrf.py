@@ -178,8 +178,9 @@ def fit_ncrf(
         :class:`NCRF`); the response functions are ``result.model.h`` /
         ``result.model.h_scaled``, and metrics for an arbitrary dataset are
         ``result.model.evaluate(data)``. Training-set metrics (``scores``,
-        ``voxelwise_explained_variance``), solver state, ``history``, and
-        ``cv_info()`` live on the result itself.
+        ``voxelwise_explained_variance``), solver state
+        (``solver_fit``, including ``solver_fit.history``), and ``cv_info()``
+        live on the result itself.
 
     Examples
     --------

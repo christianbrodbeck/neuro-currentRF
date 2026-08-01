@@ -68,11 +68,11 @@ def test_ncrf():
     np.testing.assert_equal(result.model.design.stim_scaling[0], (stim - stim_baseline).abs().mean())
     np.testing.assert_allclose(result.model.h.norm('time').norm('source').norm('space'), 6.601677e-10, rtol=0.001)
     # by default, objective/residual accumulate but trajectories are not stored
-    assert len(result.history.objective) > 0
-    assert len(result.history.residual) > 0
-    assert result.history.theta == []
-    assert result.history.gamma == []
-    assert result.history.sigma_b == []
+    assert len(result.solver_fit.history.objective) > 0
+    assert len(result.solver_fit.history.residual) > 0
+    assert result.solver_fit.history.theta == []
+    assert result.solver_fit.history.gamma == []
+    assert result.solver_fit.history.sigma_b == []
 
     # test persistence
     result_2 = pickle.loads(pickle.dumps(result, pickle.HIGHEST_PROTOCOL))
@@ -90,10 +90,10 @@ def test_ncrf():
     assert result.solver is solver
     assert set(result.scores) == {'explained_variance', 'l2_error', 'cross_fit', 'weighted_l2_error'}
     assert result.model.design.basis_std == 0.050
-    assert len(result.history.theta) == 1
-    assert len(result.history.gamma) == 1
-    assert len(result.history.sigma_b) == 1
-    assert all(theta.shape == result.model.theta.shape for theta in result.history.theta)
+    assert len(result.solver_fit.history.theta) == 1
+    assert len(result.solver_fit.history.gamma) == 1
+    assert len(result.solver_fit.history.sigma_b) == 1
+    assert all(theta.shape == result.model.theta.shape for theta in result.solver_fit.history.theta)
 
     # 2 stimuli, one of them 2-d, l2 normalization
     diff = stim.diff('time')

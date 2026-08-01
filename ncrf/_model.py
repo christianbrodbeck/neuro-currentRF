@@ -379,7 +379,8 @@ class NCRFFit:
     solver
         Immutable solver configuration used for the fit.
     solver_fit
-        Solver-specific fitted state and iteration history.
+        Solver-specific fitted state and iteration history (for ChampLasso,
+        ``solver_fit.history``).
     scores
         Prediction metrics on the training data, keyed by name: the
         solver-independent model metrics plus whatever the solver contributes
@@ -389,8 +390,6 @@ class NCRFFit:
     voxelwise_explained_variance
         Source-wise contributions to explained variance on the training data
         (``None`` unless requested at fit time).
-    history
-        Solver-specific per-iteration history, when available.
 
     Notes
     -----
@@ -413,7 +412,6 @@ class NCRFFit:
         self.solver_fit = solver_fit
         self.scores = scores
         self.voxelwise_explained_variance = voxelwise_explained_variance
-        self.history = getattr(solver_fit, 'history', None)
         self._cv_results = cv_results
 
     def __repr__(self) -> str:
