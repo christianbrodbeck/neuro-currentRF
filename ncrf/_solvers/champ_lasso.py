@@ -174,16 +174,12 @@ class _ChampLassoState:
 
     def __init__(
             self,
+            solver: ChampLasso,
             forward: ForwardModel,
-            n_iter: int,
-            n_iterc: int,
-            n_iterf: int,
     ) -> None:
         # configuration (immutable)
+        self.solver = solver
         self.forward = forward
-        self.n_iter = n_iter
-        self.n_iterc = n_iterc
-        self.n_iterf = n_iterf
         # initialization seeds (set by _initialize)
         self._init_gamma: list | None = None
         self._init_sigma_b: list[FloatArray] | None = None
@@ -193,9 +189,9 @@ class _ChampLassoState:
         self.Sigma_b: list[FloatArray] | None = None
 
     def __repr__(self) -> str:
-        n_iter, n_iterc, n_iterf = self.n_iter, self.n_iterc, self.n_iterf
+        solver = self.solver
         initialized = self.theta is not None
-        details = f'{n_iter=}, {n_iterc=}, {n_iterf=}, {initialized=}'
+        details = f'{solver=!r}, {initialized=}'
         if initialized:
             n_components, n_basis = self.theta.shape
             details += f", {_count_repr(n_components, 'source component')}, {_count_repr(n_basis, 'basis coefficient')}"
@@ -248,7 +244,7 @@ class _ChampLassoState:
             dc = 1
 
         if n_iterc is None:
-            n_iterc = self.n_iterc
+            n_iterc = self.solver.n_iterc
 
         logger.debug('Champagne Iterations start:')
         logger.debug('trial \t time taken')
@@ -297,17 +293,16 @@ class _ChampLassoState:
     def run(
             self,
             data: RegressionData,
-            mu: float,
-            tol: float,
             history: ChampLassoHistory,
             verbose: bool = False,
     ) -> None:
-        """Run the alternating FASTA/Champagne optimization for regularization ``mu``.
+        """Run the alternating FASTA/Champagne optimization.
 
         Leaves ``theta``, ``Gamma`` and ``Sigma_b`` populated and records the
         requested per-iteration quantities into ``history``.
         """
         logger = logging.getLogger(__name__)
+        mu = float(self.solver.mu)
         self._initialize(data)
 
         if self.forward.space:
@@ -321,15 +316,15 @@ class _ChampLassoState:
         myname = current_process().name
 
         if verbose:
-            iter_o = tqdm(range(self.n_iter))
+            iter_o = tqdm(range(self.solver.n_iter))
         else:
-            iter_o = range(self.n_iter)
+            iter_o = range(self.solver.n_iter)
 
         logger.debug('process:iteration \t objective value \t %% change')
         for i in iter_o:
             funct, grad_funct = self._construct_f(data)
             logger.debug(f"Before FASTA:{funct(self.theta)}")
-            Theta = Fasta(funct, g_funct, grad_funct, prox_g, n_iter=self.n_iterf)
+            Theta = Fasta(funct, g_funct, grad_funct, prox_g, n_iter=self.solver.n_iterf)
             Theta.learn(theta)
 
             residual = self._residual(theta, Theta.coefs_)
@@ -338,7 +333,7 @@ class _ChampLassoState:
             history.record(residual=residual, theta=theta)
             logger.debug(f"After FASTA: {funct(self.theta)}")
 
-            if residual < tol:
+            if residual < self.solver.tol:
                 break
 
             self._solve(data, theta)
@@ -640,10 +635,9 @@ class ChampLasso(Solver):
         """Estimate NCRF weights for one prepared, whitened dataset."""
         if not _is_number(self.mu):
             raise ValueError("ChampLasso.solve() requires a fixed numeric mu; use NCRFEstimator.fit() to resolve a grid or mu='auto'")
-        mu = float(self.mu)
         history = ChampLassoHistory(**{field: getattr(self, field) for field in _STORE_FIELDS})
-        state = _ChampLassoState(forward, self.n_iter, self.n_iterc, self.n_iterf)
-        state.run(data, mu, self.tol, history, verbose)
+        state = _ChampLassoState(self, forward)
+        state.run(data, history, verbose)
         return ChampLassoFit(
             theta=state.theta,
             history=history,
@@ -657,7 +651,7 @@ class ChampLasso(Solver):
             data: RegressionData,
     ) -> tuple[ChampLasso, ...]:
         """Derive the standard seven-value ``mu`` grid from the data."""
-        state = _ChampLassoState(forward, self.n_iter, self.n_iterc, self.n_iterf)
+        state = _ChampLassoState(self, forward)
         gradient = state.gradient(data)
         hi = log10(np.percentile(gradient, 99.0))
         mus = np.logspace(hi - 2, hi, 7)
