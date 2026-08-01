@@ -58,7 +58,8 @@ class SolverFit:
 
         Merged with the solver-independent model metrics wherever a fit is
         scored: on the training data in :attr:`NCRFFit.scores`, and per fold
-        in ``CVResult.scores``. Keys must not collide with the metric names.
+        in ``CVResult.scores``. Keys that collide with a metric name are
+        rejected by :func:`~ncrf._metrics.merge_scores`.
         """
         return {}
 

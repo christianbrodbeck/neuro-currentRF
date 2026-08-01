@@ -14,6 +14,7 @@ from ncrf._crossvalidation import CVResult
 from ncrf._data import RegressionData, covariate_from_stim
 from ncrf._forward import ForwardModel
 from ncrf._linalg import gaussian_basis
+from ncrf._metrics import merge_scores
 from ncrf._model import NCRFEstimator, NCRF
 from ncrf._solvers import Solver
 from .fetch import load
@@ -117,6 +118,15 @@ def test_default_selection_contract():
 def test_solver_fit_score_defaults_empty():
     """Solvers without their own scores contribute nothing to the score dict."""
     assert SolverFit(np.empty((2, 3))).score(Mock(), Mock()) == {}
+
+
+def test_merge_scores_rejects_shadowing():
+    """Candidates are selected by score name, so a silent overwrite is not acceptable."""
+    metrics = {'explained_variance': 0.5, 'l2_error': 3.0}
+
+    assert merge_scores(metrics, {'cross_fit': 1.0}) == {**metrics, 'cross_fit': 1.0}
+    with pytest.raises(ValueError, match="duplicate score l2_error"):
+        merge_scores(metrics, {'cross_fit': 1.0, 'l2_error': 0.0})
 
 
 def test_whitening_guard():

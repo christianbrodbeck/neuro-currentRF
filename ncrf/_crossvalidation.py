@@ -23,6 +23,7 @@ import numpy as np
 from tqdm import tqdm
 
 from ._data import RegressionData
+from ._metrics import merge_scores
 from ._typing import FloatArray
 
 if TYPE_CHECKING:
@@ -137,15 +138,14 @@ def _score_candidate(
         testdata = data.timeslice(test)
         model, solver_fit = estimator._fit_model(traindata, fold_solver)
         models.append(model)
-        fold_scores.append({
-            **model.evaluate(testdata, accept_whitening=True),
-            **solver_fit.score(estimator.forward, testdata),
-        })
+        fold_scores.append(merge_scores(
+            model.evaluate(testdata, accept_whitening=True),
+            solver_fit.score(estimator.forward, testdata),
+        ))
 
     scores = {key: sum(fold[key] for fold in fold_scores) / len(fold_scores) for key in fold_scores[0]}
     estimation_stability = compute_es_metric(models, data)
-    scores['estimation_stability'] = 10 if np.isnan(estimation_stability) else estimation_stability
-    return CVResult(solver, scores)
+    return CVResult(solver, merge_scores(scores, {'estimation_stability': 10 if np.isnan(estimation_stability) else estimation_stability}))
 
 
 def crossvalidate(

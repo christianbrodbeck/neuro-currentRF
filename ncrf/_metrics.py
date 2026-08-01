@@ -18,6 +18,30 @@ from ._typing import FloatArray
 Metric: TypeAlias = Callable[[Sequence[FloatArray], Sequence[FloatArray]], float]
 
 
+def merge_scores(*score_dicts: dict[str, float]) -> dict[str, float]:
+    """Combine score mappings from different sources into one.
+
+    Parameters
+    ----------
+    score_dicts
+        Scores keyed by name, e.g. the model metrics and whatever
+        :meth:`~ncrf.SolverFit.score` contributed.
+
+    Raises
+    ------
+    ValueError
+        If two sources provide the same key. Candidates are selected by score
+        name, so a silent overwrite would change what cross-validation optimizes.
+    """
+    merged: dict[str, float] = {}
+    for scores in score_dicts:
+        duplicate = sorted(merged.keys() & scores.keys())
+        if duplicate:
+            raise ValueError(f"duplicate score {', '.join(duplicate)}: solver scores must not shadow the model metrics")
+        merged.update(scores)
+    return merged
+
+
 def explained_variance(
         observed: Sequence[FloatArray],
         predicted: Sequence[FloatArray],

@@ -20,7 +20,7 @@ from ._crossvalidation import CrossValidation, CVResult, select_solver
 from ._data import RegressionData
 from ._trf_design import TRFDesign
 from ._forward import ForwardModel
-from ._metrics import Metric, explained_variance, l2_error
+from ._metrics import Metric, explained_variance, l2_error, merge_scores
 from ._repr import _count_repr, _forward_summary
 from ._solvers import Solver, SolverFit
 from ._typing import FloatArray
@@ -358,10 +358,10 @@ class NCRFEstimator:
             solver, cv_results = select_solver(self, data, candidates, cv)
 
         model, solver_fit = self._fit_model(data, solver, verbose)
-        scores = {
-            **model.evaluate(data, accept_whitening=True),
-            **solver_fit.score(self.forward, data),
-        }
+        scores = merge_scores(
+            model.evaluate(data, accept_whitening=True),
+            solver_fit.score(self.forward, data),
+        )
         if compute_explained_variance:
             voxelwise = model.voxelwise_explained_variance(data, accept_whitening=True)
         else:
