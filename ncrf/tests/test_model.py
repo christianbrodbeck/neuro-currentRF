@@ -202,6 +202,43 @@ def test_normalize_rejects_renormalization():
     np.testing.assert_array_equal(data.normalize(data.design).covariates[0], data.covariates[0])
 
 
+@pytest.mark.parametrize('scale', ['l1', 'l2', 'spectral'])
+def test_rejects_constant_predictor(scale):
+    """A predictor without variation has no scale, and dividing by it destroys its covariates."""
+    rng = np.random.RandomState(0)
+    time = UTS(0, 0.01, 200)
+    meg = [NDVar(rng.normal(size=(3, 200)), (SENSOR, time))]
+    varying = NDVar(rng.normal(size=200), (time,), name='varying')
+    constant = NDVar(np.full(200, 2.5), (time,), name='constant')
+    # a single constant channel of a multi-channel predictor is enough
+    x = rng.normal(size=(2, 200))
+    x[1] = 7.
+    bands = NDVar(x, (Categorial('band', ['low', 'high']), time), name='bands')
+
+    with pytest.raises(ValueError, match="constant: predictor is constant over time"):
+        RegressionData.from_data(meg, [[varying, constant]], 0, 0.05, scale=scale)
+    with pytest.raises(ValueError, match=r"bands\[1\]: predictor is constant over time"):
+        RegressionData.from_data(meg, [[varying, bands]], 0, 0.05, scale=scale)
+
+    # without scaling there is nothing to divide by
+    data = RegressionData.from_data(meg, [[varying, constant]], 0, 0.05, scale=None)
+    assert np.isfinite(data.covariates[0]).all()
+
+
+@pytest.mark.parametrize('factor', [0., np.nan, np.inf, -1.])
+def test_normalize_rejects_invalid_scaling(factor):
+    """Scaling factors that would fill the covariates with NaN or infinity are rejected."""
+    data = _synthetic_data()
+    design = _synthetic_data('l2').design
+    scaling = design.stim_scaling.copy()
+    scaling[1] = factor
+
+    with pytest.raises(ValueError, match=r"invalid 'l2' scaling \(quiet="):
+        data.normalize(replace(design, stim_scaling=scaling))
+    # the valid scaling still applies
+    np.testing.assert_allclose(data.normalize(design).covariates[0], _synthetic_data('l2').covariates[0])
+
+
 def test_normalize_rejects_incompatible_design():
     data = _synthetic_data()
 

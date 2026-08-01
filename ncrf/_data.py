@@ -26,7 +26,7 @@ SCALES = ('l1', 'l2', 'spectral')
 
 def get_scaling(
         stim: Sequence[Sequence[NDVar]],
-        stim_lens: Sequence[int],
+        design: TRFDesign,
         scale: ScaleArg,
 ) -> tuple[FloatArray, FloatArray | None]:
     """Stimulus centering and scaling values, one per expanded covariate channel.
@@ -36,8 +36,8 @@ def get_scaling(
     stim
         Stimulus lists, one per segment; each inner list contains one NDVar per
         predictor.
-    stim_lens
-        Number of covariate channels contributed by each predictor.
+    design
+        Design describing the predictors.
     scale
         Compute the ``'l1'`` (mean absolute deviation) or ``'l2'`` (standard
         deviation) scale of each predictor. Any other value yields ``None`` for the
@@ -50,11 +50,28 @@ def get_scaling(
     scaling
         The requested scale of each predictor, measured around its mean, or
         ``None``.
+
+    Raises
+    ------
+    ValueError
+        If a predictor channel is constant over time, and hence has no variation
+        to scale by.
     """
     by_predictor = list(zip(*stim))  # -> [[stim_1_trial_1, stim_1_trial_2, ...], ...]
+    # Check for constant (flat) predictors here, where the cause can be named
+    constant = []
+    for name, trials in zip(design.stim_names, by_predictor):
+        arrays = [np.atleast_2d(t.x) for t in trials]  # (n_channels, n_times) per segment
+        lo = np.min([x.min(1) for x in arrays], axis=0)
+        hi = np.max([x.max(1) for x in arrays], axis=0)
+        for i in np.flatnonzero(lo == hi):
+            constant.append(name if len(lo) == 1 else f'{name}[{i}]')
+    if constant:
+        raise ValueError(f"{', '.join(constant)}: predictor is constant over time, so it has no variation to scale by; drop it, or prepare the data with scale=None")
+
     n = sum(len(x.time) for x in by_predictor[0])
     means = [sum(x.sum('time') for x in trials) / n for trials in by_predictor]
-    baseline = _channel_values(means, stim_lens)
+    baseline = _channel_values(means, design.stim_lens)
 
     # Scale by the variation around the mean, whether or not the covariates end up
     # centered; the raw magnitude would let a predictor's offset dominate its scale
@@ -65,7 +82,7 @@ def get_scaling(
         scales = [(sum((x ** 2).sum('time') for x in trials) / n) ** 0.5 for trials in centered]
     else:  # 'spectral' is computed after covariate construction
         return baseline, None
-    return baseline, _channel_values(scales, stim_lens)
+    return baseline, _channel_values(scales, design.stim_lens)
 
 
 def _channel_values(
@@ -87,6 +104,36 @@ def _pending(
     elif target is None or not np.array_equal(current, target):
         raise ValueError(f"data covariates already carry a different {name}; prepare the data with scale=None to apply a different normalization")
     return None
+
+
+def _check_scaling(
+        scaling: FloatArray,
+        design: TRFDesign,
+) -> None:
+    """Check that scaling factors can be divided by without destroying the covariates.
+
+    Dividing by a factor of 0 fills the covariate columns with NaN, and a negative
+    or non-finite factor corrupts them just as silently, so a design carrying such
+    factors must be rejected rather than applied.
+
+    Parameters
+    ----------
+    scaling
+        Scaling factor of each covariate channel.
+    design
+        Design the factors belong to, used to name the offending channels.
+
+    Raises
+    ------
+    ValueError
+        If any factor is not finite and strictly positive.
+    """
+    bad = ~(np.isfinite(scaling) & (scaling > 0))
+    if not bad.any():
+        return
+    channels = [name if n == 1 else f'{name}[{i}]' for name, n in zip(design.stim_names, design.stim_lens) for i in range(n)]
+    items = ', '.join(f'{channels[i]}={scaling[i]:g}' for i in np.flatnonzero(bad))
+    raise ValueError(f"invalid {design.scale!r} scaling ({items}): scaling factors must be finite and > 0; a predictor that is constant over time has no variation to scale by")
 
 
 def covariate_from_stim(
@@ -320,7 +367,7 @@ class RegressionData:
         data = cls(meg_arrays, covariate_arrays, norm_factor, design, sensor_dim)
 
         if scale is not None:
-            baseline, stim_scaling = get_scaling(stim, design.stim_lens, scale)
+            baseline, stim_scaling = get_scaling(stim, design, scale)
             # Center first, so that spectral norms are measured on centered covariates
             data = data.normalize(replace(design, stim_baseline=baseline))
             if scale == 'spectral':
@@ -393,8 +440,9 @@ class RegressionData:
         Raises
         ------
         ValueError
-            If ``design`` describes a different coefficient space, or a different
-            normalization than the covariates already carry.
+            If ``design`` describes a different coefficient space, a different
+            normalization than the covariates already carry, or a scaling factor
+            that is not finite and strictly positive.
         """
         self.design.assert_compatible(design)
         baseline = _pending(self.design.stim_baseline, design.stim_baseline, 'baseline')
@@ -412,6 +460,7 @@ class RegressionData:
             for cov in covariates:
                 cov -= offset
         if scaling is not None:
+            _check_scaling(scaling, design)
             factors = design.expand(scaling)
             for cov in covariates:
                 cov /= factors
