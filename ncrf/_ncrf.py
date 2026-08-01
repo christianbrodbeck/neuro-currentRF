@@ -167,10 +167,9 @@ def fit_ncrf(
         The standard deviation (std) is related to the fwmh by:
         :math:`std = fwhm / (2 * (sqrt(2 * log(2))))`.
     solver
-        Solver configuration. When supplied, ``mu`` and the iteration arguments
-        are ignored; configure them on the solver. ``n_splits``, ``n_workers``,
-        and ``use_ES`` still configure selection when the solver exposes multiple
-        candidates.
+        Solver configuration. When supplied, ``mu``, ``use_ES`` and the iteration
+        arguments are ignored; configure them on the solver. ``n_splits`` and
+        ``n_workers`` still configure the folds a searching solver is scored on.
 
     Returns
     -------
@@ -272,12 +271,12 @@ def fit_ncrf(
 
     estimator = NCRFEstimator(lead_field, noise_cov)
     if solver is None:
-        solver = ChampLasso(mu=mu, n_iter=n_iter, n_iterc=n_iterc, n_iterf=n_iterf, tol=tol)
+        solver = ChampLasso(mu=mu, n_iter=n_iter, n_iterc=n_iterc, n_iterf=n_iterf, tol=tol, use_es=use_ES)
 
     return estimator.fit(
         ds,
         solver,
-        cv=CrossValidation(n_splits, n_workers, use_ES),
+        cv=CrossValidation(n_splits, n_workers),
         verbose=verbose,
         compute_explained_variance=True,
     )

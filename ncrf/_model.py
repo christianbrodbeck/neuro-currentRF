@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from eelbrain import NDVar, UTS, fmtxt
 import numpy as np
 
-from ._crossvalidation import CrossValidation, CVResult, select_solver
+from ._crossvalidation import CrossValidation, CVResult, crossvalidate
 from ._data import RegressionData
 from ._trf_design import TRFDesign
 from ._forward import ForwardModel
@@ -285,13 +285,26 @@ class NCRFEstimator:
     def __repr__(self) -> str:
         return f'<{type(self).__name__}: {_forward_summary(self.forward)}>'
 
-    def _fit_model(
+    def fit_model(
             self,
             data: RegressionData,
             solver: Solver,
             verbose: bool = False,
     ) -> tuple[NCRF, SolverFit]:
-        """Fit one solver configuration on prepared, whitened data."""
+        """Fit one fixed solver configuration on prepared, whitened data.
+
+        The single-fit primitive underneath :meth:`fit`: no candidate selection,
+        no scoring. Cross-validation uses it to fit the individual folds.
+
+        Parameters
+        ----------
+        data
+            Prepared, whitened data.
+        solver
+            Fixed solver configuration.
+        verbose
+            Print intermediate values of the cost functions.
+        """
         solver_fit = solver.solve(self.forward, data, verbose=verbose)
         model = NCRF(
             forward=self.forward,
@@ -319,12 +332,11 @@ class NCRFEstimator:
             with the same channels in the same order as the lead field. The
             input object is not mutated.
         solver
-            Solver configuration. Solvers that expose multiple candidates are
-            selected through cross-validation before the final fit.
+            Solver configuration. A solver with more than one configuration to
+            choose from selects one through cross-validation before the final fit.
         cv
-            Cross-validation configuration. A default configuration is used
-            when ``solver`` exposes multiple candidates and ``cv`` is omitted;
-            ignored when the solver exposes a single candidate.
+            Cross-validation configuration. Defaults to :class:`CrossValidation`;
+            unused when the solver does not cross-validate.
         verbose
             If set True prints intermediate values of the cost functions (default ``False``).
         compute_explained_variance
@@ -341,19 +353,14 @@ class NCRFEstimator:
             optional cross-validation and source-wise diagnostics.
         """
         data = self.forward.whiten(data, accept_whitening)
+        if cv is None:
+            cv = CrossValidation()
 
-        candidates = solver.candidates(self.forward, data)
-        if not candidates:
-            raise ValueError("solver produced no candidate configurations")
-        if len(candidates) == 1:
-            solver = candidates[0]
-            cv_results = None
-        else:
-            if cv is None:
-                cv = CrossValidation()
-            solver, cv_results = select_solver(self, data, candidates, cv)
+        def score(candidates: Sequence[Solver]) -> list[CVResult]:
+            return crossvalidate(self, data, candidates, cv.n_splits, cv.n_workers)
 
-        model, solver_fit = self._fit_model(data, solver, verbose)
+        solver, cv_results = solver.search(self.forward, data, score)
+        model, solver_fit = self.fit_model(data, solver, verbose)
         scores = merge_scores(
             model.evaluate(data, accept_whitening=True),
             solver_fit.score(self.forward, data),
@@ -369,7 +376,7 @@ class NCRFEstimator:
             solver_fit=solver_fit,
             scores=scores,
             voxelwise_explained_variance=voxelwise,
-            cv_results=cv_results,
+            cv_results=cv_results or None,
         )
 
 
@@ -403,8 +410,8 @@ class NCRFFit:
 
     Notes
     -----
-    Cross-validation scores are retained when candidate selection runs and are
-    exposed through :meth:`cv_info` and :meth:`cv_mu`.
+    Cross-validation scores are retained when the solver's search cross-validates,
+    and are exposed through :meth:`cv_info` and :meth:`cv_mu`.
     """
 
     def __init__(
@@ -453,6 +460,6 @@ class NCRFFit:
         return select_by_criterion(self._require_cv_results(), criterion).mu
 
     def _require_cv_results(self) -> list[CVResult]:
-        if self._cv_results is None:
-            raise ValueError("No cross-validation results; use a solver with multiple candidates, such as ChampLasso(mu='auto').")
+        if not self._cv_results:
+            raise ValueError("No cross-validation results; use a solver that searches over several configurations, such as ChampLasso(mu='auto').")
         return self._cv_results

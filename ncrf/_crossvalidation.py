@@ -1,8 +1,9 @@
-"""Cross-validation helpers used by the NCRF estimator.
+"""Cross-validation machinery used by the NCRF estimator.
 
-The estimator owns fitting orchestration, while this module supplies the
-execution machinery for evaluating solver candidates and splitting time-series
-data into train/test windows.
+This module only scores fixed solver configurations: it splits the time series,
+fits and evaluates each candidate on every fold, and computes the
+estimation-stability metric across folds. Which candidates to score, and which
+of them wins, is decided by :meth:`~ncrf.Solver.search`.
 """
 
 from __future__ import annotations
@@ -43,13 +44,10 @@ class CrossValidation:
         Number of cross-validation folds.
     n_workers
         Number of worker processes, or ``None`` to use the configured default.
-    use_es
-        Refine ChampLasso selection with the estimation-stability criterion.
     """
 
     n_splits: int = 3
     n_workers: int | None = None
-    use_es: bool = False
 
 
 def _initialize_worker(score: Callable, *args: object) -> None:
@@ -86,11 +84,7 @@ def compute_es_metric(models: Sequence[NCRF], data: RegressionData) -> float:
     float
         Estimation-stability score.
     """
-    Y = []
-    for model in models:
-        theta = model._theta_for(data)
-        Y.append(np.concatenate([model._predict_whitened(theta, covariate).ravel() for covariate in data.covariates]))
-    Y = np.array(Y)
+    Y = np.array([np.concatenate([prediction.ravel() for prediction in model.predict(data, whitened=True)]) for model in models])
     Y_bar = Y.mean(axis=0)
     VarY = (((Y - Y_bar) ** 2).sum(axis=1)).mean()
     denominator = (Y_bar ** 2).sum()
@@ -124,7 +118,7 @@ def _score_candidate(
 ) -> CVResult:
     """Fit and score all cross-validation folds for one solver candidate.
 
-    Each fold is fit through the estimator's single-model primitive, then scored
+    Each fold is fit through :meth:`~ncrf.NCRFEstimator.fit_model`, then scored
     on its held-out window with the model metrics plus whatever the solver's fit
     contributes.
     """
@@ -136,7 +130,7 @@ def _score_candidate(
     for train, test in kf.split(data.meg[0][0]):
         traindata = data.timeslice(train)
         testdata = data.timeslice(test)
-        model, solver_fit = estimator._fit_model(traindata, fold_solver)
+        model, solver_fit = estimator.fit_model(traindata, fold_solver)
         models.append(model)
         fold_scores.append(merge_scores(
             model.evaluate(testdata, accept_whitening=True),
@@ -181,6 +175,7 @@ def crossvalidate(
     list
         Cross-validation results.
     """
+    logging.getLogger(__name__).info('Crossvalidation initiated!')
     if n_workers is None:
         n = CONFIG['n_workers'] or 1  # by default this is cpu_count()
         n_workers = ceil(n / 8)
@@ -202,27 +197,6 @@ def crossvalidate(
                     prog.update()
 
     return results
-
-
-def select_solver(
-        estimator: NCRFEstimator,
-        data: RegressionData,
-        candidates: Sequence[Solver],
-        cv: CrossValidation,
-) -> tuple[Solver, list[CVResult]]:
-    """Cross-validate solver candidates and choose the best one.
-
-    The solver's ``refine`` and ``select`` methods decide how to score,
-    extend and compare its candidates.
-    """
-    logger = logging.getLogger(__name__)
-    logger.info('Crossvalidation initiated!')
-    cv_results = crossvalidate(estimator, data, candidates, cv.n_splits, cv.n_workers)
-    extra = candidates[0].refine(cv_results)
-    if extra:
-        cv_results.extend(crossvalidate(estimator, data, extra, cv.n_splits, cv.n_workers))
-    solver = candidates[0].select(cv_results, cv)
-    return solver, cv_results
 
 
 class TimeSeriesSplit:

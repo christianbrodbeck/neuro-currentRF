@@ -33,7 +33,7 @@ def test_fit_model():
     solver.solve.return_value = solver_fit
     data = Mock(design=object())
 
-    model, returned_fit = estimator._fit_model(data, solver, True)
+    model, returned_fit = estimator.fit_model(data, solver, True)
 
     assert model.forward is estimator.forward
     assert model.theta is solver_fit.theta
@@ -79,40 +79,42 @@ def test_fit_accepts_generic_solver(monkeypatch):
     prediction = result.model.predict(data)
     np.testing.assert_array_equal(prediction[0], np.zeros((1, 4)))
 
-    candidates = (Mock(), Mock())
-    grid_solver = Mock(spec=Solver)
-    grid_solver.candidates.return_value = candidates
+    # a searching solver decides the configuration and hands back its cv results
+    searching_solver = Mock(spec=Solver)
     selected_solver = _ZeroSolver()
     cv_results = [Mock()]
-    select = Mock(return_value=(selected_solver, cv_results))
-    monkeypatch.setattr('ncrf._model.select_solver', select)
+    searching_solver.search.return_value = (selected_solver, cv_results)
+    monkeypatch.setattr('ncrf._model.crossvalidate', Mock(return_value=cv_results))
     cv = CrossValidation(n_splits=4, n_workers=0)
 
-    result = estimator.fit(data, grid_solver, cv=cv)
+    result = estimator.fit(data, searching_solver, cv=cv)
 
-    select.assert_called_once_with(estimator, data, candidates, cv)
     assert result.solver is selected_solver
     assert result._cv_results is cv_results
+    # search() is handed a callable that cross-validates on the configured folds
+    forward, search_data, score = searching_solver.search.call_args.args
+    assert (forward, search_data) == (estimator.forward, data)
+    candidates = (Mock(), Mock())
+    assert score(candidates) is cv_results
+    from ncrf._model import crossvalidate
+    crossvalidate.assert_called_once_with(estimator, data, candidates, 4, 0)
 
 
-def test_default_selection_contract():
-    """A solver implementing only solve() gets working selection defaults."""
+def test_default_search_contract():
+    """A solver implementing only solve() is a fixed configuration that needs no CV."""
     solver = _ZeroSolver()
-    worse = _ZeroSolver()
-    better = _ZeroSolver()
-    cv_results = [
-        CVResult(worse, {'l2_error': 3.0, 'explained_variance': 0.1, 'estimation_stability': 1.0}),
-        CVResult(better, {'l2_error': 1.0, 'explained_variance': 0.4, 'estimation_stability': 2.0}),
-    ]
+    score = Mock()
 
-    assert solver.criterion == 'l2_error'
     assert solver.without_history() is solver
-    assert solver.candidates(None, None) == (solver,)
-    # no extra passes, and the generic criterion picks the smallest l2_error
-    assert solver.refine(cv_results) == ()
-    assert solver.select(cv_results, CrossValidation()) is better
+    assert solver.search(None, None, score) == (solver, [])
+    score.assert_not_called()
+
     # a generic table renders from whatever score keys are present
-    assert 'l2_error' in str(solver.cv_table(cv_results, better))
+    cv_results = [
+        CVResult(_ZeroSolver(), {'l2_error': 3.0, 'explained_variance': 0.1}),
+        CVResult(solver, {'l2_error': 1.0, 'explained_variance': 0.4}),
+    ]
+    assert 'l2_error' in str(solver.cv_table(cv_results, solver))
 
 
 def test_solver_fit_score_defaults_empty():

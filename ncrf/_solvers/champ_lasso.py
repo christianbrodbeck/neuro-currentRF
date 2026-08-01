@@ -33,7 +33,8 @@ from .._typing import _R_tol, FloatArray, GradientFunction, MuArg, ObjectiveFunc
 from .base import Solver, SolverFit
 
 if TYPE_CHECKING:
-    from .._crossvalidation import CrossValidation, CVResult
+    from .._crossvalidation import CVResult
+    from .base import ScoreCandidates
 
 #: Per-iteration storage flags, shared by :class:`ChampLasso` and :class:`ChampLassoHistory`.
 _STORE_FIELDS = ('store_objective', 'store_residual', 'store_theta', 'store_gamma', 'store_sigma_b')
@@ -495,6 +496,9 @@ class ChampLasso(Solver):
     tol
         Tolerance factor deciding stopping criterion for the overall algorithm.
         Iteration stops when ``norm(trf_new - trf_old)/norm(trf_old) < tol``.
+    use_es
+        Refine the cross-validated ``mu`` with the estimation stability criterion
+        :cite:`limEstimationStabilityCrossValidation2016` (default ``False``).
     store_theta
         Store the ``theta`` estimate after each outer iteration in the solver
         history (default ``False``).
@@ -514,6 +518,7 @@ class ChampLasso(Solver):
     n_iterc: int = 10
     n_iterf: int = 100
     tol: float = 1e-5
+    use_es: bool = False
     store_objective: bool = True
     store_residual: bool = True
     store_theta: bool = False
@@ -524,15 +529,29 @@ class ChampLasso(Solver):
         """Disable all per-iteration storage for cross-validation folds."""
         return replace(self, **{field: False for field in _STORE_FIELDS})
 
-    def select(
+    def search(
             self,
-            cv_results: Sequence[CVResult],
-            cv: CrossValidation,
-    ) -> ChampLasso:
+            forward: ForwardModel,
+            data: RegressionData,
+            score: ScoreCandidates,
+    ) -> tuple[ChampLasso, list[CVResult]]:
+        """Resolve ``mu``, and cross-validate it when there is more than one value."""
+        candidates = self.candidates(forward, data)
+        if len(candidates) == 1:
+            return candidates[0], []
+        cv_results = list(score(candidates))
+        # Extend before selecting, so that the estimation-stability criterion is
+        # applied to the complete cross-fit search range
+        extension = self._extend_grid(cv_results)
+        if extension:
+            cv_results.extend(score(extension))
+        return self._select(cv_results), cv_results
+
+    def _select(self, cv_results: Sequence[CVResult]) -> ChampLasso:
         """Select ``mu`` by cross-fit, optionally refined by estimation stability."""
         logger = logging.getLogger(__name__)
         solver = select_by_criterion(cv_results, 'cross-fit')
-        if not cv.use_es:
+        if not self.use_es:
             return solver
 
         if solver.mu == max(result.solver.mu for result in cv_results):
@@ -544,16 +563,11 @@ class ChampLasso(Solver):
             return solver
         return es_solver
 
-    def refine(
+    def _extend_grid(
             self,
             cv_results: Sequence[CVResult],
     ) -> tuple[ChampLasso, ...]:
-        """Return one additional decade when the cross-fit winner is on a grid boundary.
-
-        The extension is based on the cross-fit winner rather than on the outcome
-        of :meth:`select`, so that the estimation-stability criterion is applied
-        to the complete cross-fit search range.
-        """
+        """Return one additional decade when the cross-fit winner is on a grid boundary."""
         logger = logging.getLogger(__name__)
         best = select_by_criterion(cv_results, 'cross-fit')
         mus = [result.solver.mu for result in cv_results]

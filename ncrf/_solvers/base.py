@@ -1,14 +1,15 @@
 """The solver contract.
 
 A solver is immutable configuration that estimates NCRF weights (:meth:`Solver.solve`).
-Solvers that expose more than one candidate configuration (:meth:`Solver.candidates`)
-are selected by cross-validation, which is driven entirely through the hooks below:
+A solver that has more than one configuration to choose from selects one in
+:meth:`Solver.search`, which is handed a callable that cross-validates
+configurations on demand. That one hook owns the whole search, so a solver can
+score a fixed grid, extend it, or refine it in several passes without the
+estimator or the cross-validation machinery knowing anything about it.
 
-- :meth:`SolverFit.score` contributes solver-specific scores.
-- :attr:`Solver.criterion` names the score to minimize.
-- :meth:`Solver.refine` may extend the search, then :meth:`Solver.select` picks the winner.
-
-Every hook has a working default, so a new solver only needs :meth:`solve`.
+:meth:`SolverFit.score` contributes solver-specific scores to compare
+configurations by. Every hook has a working default, so a new solver only needs
+:meth:`solve`.
 """
 from __future__ import annotations
 
@@ -23,9 +24,15 @@ from .._repr import _count_repr
 from .._typing import FloatArray
 
 if TYPE_CHECKING:
-    from .._crossvalidation import CrossValidation, CVResult
+    from collections.abc import Callable
+    from typing import TypeAlias
+
+    from .._crossvalidation import CVResult
     from .._data import RegressionData
     from .._forward import ForwardModel
+
+    #: Cross-validates fixed solver configurations, returning one result each.
+    ScoreCandidates: TypeAlias = Callable[[Sequence['Solver']], list[CVResult]]
 
 
 @dataclass(frozen=True, repr=False)
@@ -67,22 +74,9 @@ class SolverFit:
 class Solver(ABC):
     """Configuration contract for an algorithm that estimates NCRF weights.
 
-    :class:`~ncrf.NCRFEstimator` asks a solver for fixed candidate
-    configurations, cross-validates them when necessary, and calls :meth:`solve`
-    for the final fit. Implementations can override the selection and refinement
-    hooks while returning a common :class:`SolverFit` interface.
+    :class:`~ncrf.NCRFEstimator` asks a solver to select a fixed configuration
+    (:meth:`search`) and then calls :meth:`solve` for the final fit.
     """
-
-    # Key in each ``CVResult.scores`` mapping minimized when selecting among candidates.
-    criterion: str = 'l2_error'
-
-    def candidates(
-            self,
-            forward: ForwardModel,
-            data: RegressionData,
-    ) -> tuple[Solver, ...]:
-        """Return fixed configurations to compare before fitting."""
-        return (self,)
 
     @abstractmethod
     def solve(
@@ -94,32 +88,45 @@ class Solver(ABC):
     ) -> SolverFit:
         """Estimate source-space NCRF weights for prepared, whitened data."""
 
+    def search(
+            self,
+            forward: ForwardModel,
+            data: RegressionData,
+            score: ScoreCandidates,
+    ) -> tuple[Solver, list[CVResult]]:
+        """Select the fixed configuration to fit on all of the data.
+
+        The default is a solver that is already fixed, and hence needs no
+        cross-validation.
+
+        Parameters
+        ----------
+        forward
+            Forward model the fit will use.
+        data
+            Prepared, whitened data the fit will use.
+        score
+            Cross-validates a sequence of fixed configurations and returns one
+            :class:`~ncrf._crossvalidation.CVResult` each. Call it as often as
+            the search needs; each call fits every configuration on every fold.
+
+        Returns
+        -------
+        solver
+            The configuration to fit, which has to be fixed enough for
+            :meth:`solve`.
+        cv_results
+            Every result obtained from ``score``, empty when the search did not
+            cross-validate.
+        """
+        return self, []
+
     def without_history(self) -> Solver:
         """Return this configuration with per-iteration storage disabled.
 
         Used for cross-validation folds, whose history is discarded.
         """
         return self
-
-    def select(
-            self,
-            cv_results: Sequence[CVResult],
-            cv: CrossValidation,
-    ) -> Solver:
-        """Choose the best candidate from cross-validation results."""
-        return min(cv_results, key=lambda result: result.scores[self.criterion]).solver
-
-    def refine(
-            self,
-            cv_results: Sequence[CVResult],
-    ) -> tuple[Solver, ...]:
-        """Additional candidates to score before the final selection.
-
-        Called with the results of the first pass, so that :meth:`select` sees
-        the complete search range. Returning ``()`` (the default) ends the
-        search after one pass.
-        """
-        return ()
 
     def cv_table(
             self,
