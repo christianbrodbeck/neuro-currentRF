@@ -44,6 +44,11 @@ channel is divided by one factor:
   deviation.
 - ``None``: leave the covariates on their raw scale, without centering.
 
+The centering and the ``'l1'``/``'l2'`` factors are properties of the predictor,
+and are measured on all of its samples. The ``'spectral'`` norm is a property of
+the covariates that were built from it, and is measured on the rows that carry a
+complete lag window.
+
 Centering and scaling are a single choice because they only make sense together.
 M/EEG data is high-pass filtered, so an uncentered predictor's mean would
 contribute a constant ``mean * sum(h)`` to the prediction, which the fit has to

@@ -31,6 +31,12 @@ def get_scaling(
 ) -> tuple[FloatArray, FloatArray | None]:
     """Stimulus centering and scaling values, one per expanded covariate channel.
 
+    Both describe the predictor itself, and are therefore measured on all of its
+    samples, whether or not the corresponding covariate rows survive the
+    lag-validity crop. The ``'spectral'`` scale is not a property of the predictor
+    and is computed from the covariates instead (see
+    :meth:`RegressionData._spectral_norms`).
+
     Parameters
     ----------
     stim
@@ -273,6 +279,11 @@ class RegressionData:
             - ``'l1'``/``'l2'``: the predictor's mean absolute deviation or standard
               deviation.
             - ``None``: leave the covariates on their raw scale, without centering.
+
+            The centering and the ``'l1'``/``'l2'`` factors describe the predictor
+            and are measured on all of its samples; the ``'spectral'`` norm
+            describes the constructed covariates and is measured on the rows that
+            ``pad_stim`` retains.
 
             Prepare data for prediction with ``scale=None`` and apply the fitted
             model's normalization with :meth:`normalize`.
