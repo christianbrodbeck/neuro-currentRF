@@ -44,12 +44,13 @@ def proxg_group_opt(z: FloatArray, mu: float) -> FloatArray:
                     x_s = max(1 - mu/||z_s||, 0) z_s
 
     Wrapper for the Cython kernel. The three orientation components per source
-    (fixed ``dc == 3``) are grouped along a reshaped array. For a contiguous ``z``
-    that reshape is a view, so the shrinkage overwrites ``z`` and the return value
-    shares its buffer; otherwise it is a copy and ``z`` is left unchanged. Callers
-    must therefore treat ``z`` as consumed and use only the return value.
+    (fixed ``dc == 3``) are grouped along a reshaped array. Like :func:`shrink`,
+    the result is a new array and ``z`` is left unchanged; FASTA derives the
+    subgradient from the difference between the two, which vanishes if they share
+    a buffer.
     """
     l = z.shape[1]
     z3 = z.reshape(-1, 3, l)
-    opt.cproxg_group(z3, mu, z3)
-    return z3.reshape(-1, l)
+    out = np.empty_like(z3)
+    opt.cproxg_group(z3, mu, out)
+    return out.reshape(-1, l)
