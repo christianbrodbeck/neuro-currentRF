@@ -43,10 +43,10 @@ class NCRF:
         Fitted NCRF coefficients over the Gaussian basis.
     design
         Stimulus, basis, and normalization metadata of the data the model was fit
-        on. Pass it to :meth:`~ncrf.RegressionData.normalize` to bring another
+        on, including the TRF timing (``design.tstart``, ``design.tstep``,
+        ``design.tstop``) and the Gaussian-basis width (``design.basis_std``).
+        Pass it to :meth:`~ncrf.RegressionData.normalize` to bring another
         dataset onto the same scale.
-    tstart, tstep, tstop, basis_std
-        TRF timing and Gaussian-basis width, delegated to the stored design.
     """
 
     def __init__(
@@ -58,22 +58,6 @@ class NCRF:
         self.forward = forward
         self.theta = theta
         self.design = design
-
-    @property
-    def tstart(self) -> list[float]:
-        return self.design.tstart
-
-    @property
-    def tstep(self) -> float:
-        return self.design.tstep
-
-    @property
-    def tstop(self) -> list[float]:
-        return self.design.tstop
-
-    @property
-    def basis_std(self) -> float:
-        return self.design.basis_std
 
     def __repr__(self) -> str:
         n_basis = self.theta.shape[1]

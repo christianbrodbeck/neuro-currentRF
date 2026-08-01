@@ -79,7 +79,7 @@ def test_ncrf():
     assert_dataobj_equal(result_2.model.h, result.model.h)
     assert_dataobj_equal(result_2.model.h_scaled, result.model.h_scaled)
     np.testing.assert_equal(result_2.scores['cross_fit'], result.scores['cross_fit'])
-    np.testing.assert_equal(result_2.model.basis_std, result.model.basis_std)
+    np.testing.assert_equal(result_2.model.design.basis_std, result.model.design.basis_std)
     # the model alone round-trips and reproduces h
     model_2 = pickle.loads(pickle.dumps(result.model, pickle.HIGHEST_PROTOCOL))
     assert_dataobj_equal(model_2.h, result.model.h)
@@ -89,7 +89,7 @@ def test_ncrf():
     result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='spectral', solver=solver, basis_std=0.050)
     assert result.solver is solver
     assert set(result.scores) == {'explained_variance', 'l2_error', 'cross_fit', 'weighted_l2_error'}
-    assert result.model.basis_std == 0.050
+    assert result.model.design.basis_std == 0.050
     assert len(result.history.theta) == 1
     assert len(result.history.gamma) == 1
     assert len(result.history.sigma_b) == 1
@@ -115,8 +115,8 @@ def test_ncrf():
     np.testing.assert_allclose(result.scores['explained_variance'], 0.021442823238037034, rtol=0.001)
     np.testing.assert_allclose(result.scores['cross_fit'], 177.15021740565106, rtol=0.001)
     # check start and stop
-    np.testing.assert_equal(result.model.tstart, tstart)
-    np.testing.assert_equal(result.model.tstop, tstop)
+    np.testing.assert_equal(result.model.design.tstart, tstart)
+    np.testing.assert_equal(result.model.design.tstop, tstop)
     # check scaling
     np.testing.assert_equal(result.model.design.stim_baseline[0], stim.mean())
     np.testing.assert_equal(result.model.design.stim_scaling[0], stim.std())
