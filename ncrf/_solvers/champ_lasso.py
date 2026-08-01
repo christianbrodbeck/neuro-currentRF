@@ -47,16 +47,23 @@ class ChampLassoHistory:
     :meth:`record` appends to a list only when its flag is set, so the amount of
     stored history can range from nothing to the full optimization trajectory.
 
+    All lists are indexed by outer iteration. ``residual`` and ``theta`` are
+    recorded for every iteration, whereas ``objective``, ``gamma`` and
+    ``sigma_b`` come from the covariance update, which is skipped once the
+    iterations converge; the last of those hence corresponds to
+    ``theta[-2]`` when the solver stopped on the tolerance criterion.
+
     Attributes
     ----------
     objective
-        Objective value after each outer iteration.
+        Objective value after each covariance update.
     residual
         Relative change in ``theta`` after each outer iteration (the convergence
         criterion).
     theta, gamma, sigma_b
         Trajectories of the corresponding solver quantities; populated only when
-        the matching ``store_*`` flag is set.
+        the matching ``store_*`` flag is set. The last entry of each matches the
+        corresponding attribute of the resulting :class:`ChampLassoFit`.
     """
     store_objective: bool = True
     store_residual: bool = True
@@ -325,9 +332,9 @@ class _ChampLassoState:
             Theta.learn(theta)
 
             residual = self._residual(theta, Theta.coefs_)
-            history.record(residual=residual)
             theta = Theta.coefs_
             self.theta = theta
+            history.record(residual=residual, theta=theta)
             logger.debug(f"After FASTA: {funct(self.theta)}")
 
             if residual < tol:
@@ -335,7 +342,7 @@ class _ChampLassoState:
 
             self._solve(data, theta)
             objective, _ = _evaluate_objective(self.forward, self.theta, self.Sigma_b, data)
-            history.record(objective=objective, theta=self.theta, gamma=self.Gamma, sigma_b=self.Sigma_b)
+            history.record(objective=objective, gamma=self.Gamma, sigma_b=self.Sigma_b)
             logger.debug(f'{myname}:{i} \t {objective} \t {residual * 100}')
 
     def _construct_f(self, data: RegressionData) -> tuple[ObjectiveFunction, GradientFunction]:
