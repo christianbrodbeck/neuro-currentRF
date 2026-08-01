@@ -64,16 +64,7 @@ def get_scaling(
         to scale by.
     """
     by_predictor = list(zip(*stim))  # -> [[stim_1_trial_1, stim_1_trial_2, ...], ...]
-    # Check for constant (flat) predictors here, where the cause can be named
-    constant = []
-    for name, trials in zip(design.stim_names, by_predictor):
-        arrays = [np.atleast_2d(t.x) for t in trials]  # (n_channels, n_times) per segment
-        lo = np.min([x.min(1) for x in arrays], axis=0)
-        hi = np.max([x.max(1) for x in arrays], axis=0)
-        for i in np.flatnonzero(lo == hi):
-            constant.append(name if len(lo) == 1 else f'{name}[{i}]')
-    if constant:
-        raise ValueError(f"{', '.join(constant)}: predictor is constant over time, so it has no variation to scale by; drop it, or prepare the data with scale=None")
+    _assert_varying(by_predictor, design)
 
     n = sum(len(x.time) for x in by_predictor[0])
     means = [sum(x.sum('time') for x in trials) / n for trials in by_predictor]
@@ -89,6 +80,37 @@ def get_scaling(
     else:  # 'spectral' is computed after covariate construction
         return baseline, None
     return baseline, _channel_values(scales, design.stim_lens)
+
+
+def _assert_varying(
+        by_predictor: Sequence[Sequence[NDVar]],
+        design: TRFDesign,
+) -> None:
+    """Check that every predictor channel varies over time.
+
+    Checked here, where the offending predictor can be named, rather than when
+    the resulting scaling factor of 0 turns up in :func:`_check_scaling`.
+
+    Parameters
+    ----------
+    by_predictor
+        Segments of each predictor.
+    design
+        Design the predictors belong to, used to name the offending channels.
+
+    Raises
+    ------
+    ValueError
+        If a predictor channel has the same value at every time point.
+    """
+    constant = []
+    for name, trials in zip(design.stim_names, by_predictor):
+        arrays = [np.atleast_2d(t.x) for t in trials]  # (n_channels, n_times) per segment
+        lo = np.min([x.min(1) for x in arrays], axis=0)
+        hi = np.max([x.max(1) for x in arrays], axis=0)
+        constant.extend(name if len(lo) == 1 else f'{name}[{i}]' for i in np.flatnonzero(lo == hi))
+    if constant:
+        raise ValueError(f"{', '.join(constant)}: predictor is constant over time, so it has no variation to scale by; drop it, or prepare the data with scale=None")
 
 
 def _channel_values(
