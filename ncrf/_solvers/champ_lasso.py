@@ -238,7 +238,6 @@ class _ChampLassoState:
         no. 1, pp. 641–655, 2010
         """
         logger = logging.getLogger('Champagne')
-        dc = self.forward.dc
         if n_iterc is None:
             n_iterc = self.solver.n_iterc
 
@@ -254,37 +253,49 @@ class _ChampLassoState:
             sigma_b = self._init_sigma_b[key].copy()
 
             # champagne iterations
-            for it in range(n_iterc):
+            for _ in range(n_iterc):
                 # pre-compute some useful matrices
                 (lhat, ytilde), _ = _whiten_by_sigma_b(sigma_b, self.forward.whitened_lead_field, yhat)
-
-                # compute sigma_b for the next iteration
+                # sigma_b for the next iteration, accumulated over the sources
                 sigma_b[:] = self.forward.whitened_noise_covariance[:]
-
-                for i in range(len(self.forward.source)):
-                    block = self.forward.source_block(i)
-                    if dc > 1:
-                        # update Xi
-                        x = np.dot(gamma[i], np.dot(lhat[:, block].T, ytilde))
-                        # update Zi
-                        z = np.dot(lhat[:, block].T, lhat[:, block])
-                    else:
-                        # update Xi
-                        x = gamma[i] * lhat[:, i].T.dot(ytilde)
-                        # update Zi
-                        z = (lhat[:, i] ** 2).sum()
-
-                    # update Ti
-                    gamma[i] = compute_gamma(z, x, dc)
-
-                    # update sigma_b for next iteration
-                    lead_block = self.forward.whitened_lead_field[:, block]
-                    sigma_b += np.dot(lead_block, np.dot(gamma[i], lead_block.T))
+                self._update_gamma(gamma, lhat, ytilde, sigma_b)
 
             self.Gamma[key] = gamma
             self.Sigma_b[key] = sigma_b
             end = time.time()
             logger.debug(f'{key} \t {end - start}')
+
+    def _update_gamma(
+            self,
+            gamma: list,
+            lhat: FloatArray,
+            ytilde: FloatArray,
+            sigma_b: FloatArray,
+    ) -> None:
+        """One Champagne sweep over the sources.
+
+        Parameters
+        ----------
+        gamma
+            Source covariances, updated in place.
+        lhat, ytilde
+            Lead field and data, whitened by the current ``sigma_b``.
+        sigma_b
+            Data covariance for the next iteration, accumulated in place; the
+            caller seeds it with the noise covariance.
+        """
+        dc = self.forward.dc
+        lead_field = self.forward.whitened_lead_field
+        for i in range(len(self.forward.source)):
+            block = self.forward.source_block(i)
+            if dc > 1:
+                x = np.dot(gamma[i], np.dot(lhat[:, block].T, ytilde))  # Xi
+                z = np.dot(lhat[:, block].T, lhat[:, block])  # Zi
+            else:
+                x = gamma[i] * lhat[:, i].T.dot(ytilde)  # Xi
+                z = (lhat[:, i] ** 2).sum()  # Zi
+            gamma[i] = compute_gamma(z, x, dc)  # Ti
+            sigma_b += np.dot(lead_field[:, block], np.dot(gamma[i], lead_field[:, block].T))
 
     def run(
             self,
