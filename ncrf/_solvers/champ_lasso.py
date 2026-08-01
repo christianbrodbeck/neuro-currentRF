@@ -236,12 +236,7 @@ class _ChampLassoState:
         no. 1, pp. 641–655, 2010
         """
         logger = logging.getLogger('Champagne')
-        # Choose dc
-        if self.forward.space:
-            dc = len(self.forward.space)
-        else:
-            dc = 1
-
+        dc = self.forward.dc
         if n_iterc is None:
             n_iterc = self.solver.n_iterc
 
