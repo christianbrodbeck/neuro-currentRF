@@ -605,18 +605,22 @@ class ChampLasso(Solver):
             if mu != 'auto':
                 raise ValueError(f"{mu=}: expected a number, a sequence of numbers, or 'auto'")
             return self.auto_candidates(forward, data)
-        if _is_number(mu):
-            # already resolved: return self so callers can identify the solver they passed in
-            return (self,) if isinstance(mu, float) else (replace(self, mu=float(mu)),)
+        if isinstance(mu, float):
+            # already fixed: return self, so that NCRFFit.solver is the very
+            # solver the caller passed in
+            return (self,)
 
-        try:
-            values = tuple(mu)
-        except TypeError:
-            raise TypeError(f"{mu=}: expected a number, a sequence of numbers, or 'auto'") from None
-        if not values:
-            raise ValueError(f"{mu=}: grid must contain at least one value")
-        if not all(_is_number(value) for value in values):
-            raise TypeError(f"{mu=}: all grid values must be numbers")
+        if _is_number(mu):
+            values = (mu,)
+        else:
+            try:
+                values = tuple(mu)
+            except TypeError:
+                raise TypeError(f"{mu=}: expected a number, a sequence of numbers, or 'auto'") from None
+            if not values:
+                raise ValueError(f"{mu=}: grid must contain at least one value")
+            if not all(_is_number(value) for value in values):
+                raise TypeError(f"{mu=}: all grid values must be numbers")
         return tuple(replace(self, mu=float(value)) for value in values)
 
     def solve(
