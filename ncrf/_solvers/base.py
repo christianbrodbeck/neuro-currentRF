@@ -66,7 +66,7 @@ class SolverFit:
         Merged with the solver-independent model metrics wherever a fit is
         scored: on the training data in :attr:`NCRFFit.scores`, and per fold
         in ``CVResult.scores``. Keys that collide with a metric name are
-        rejected by :func:`~ncrf._metrics.merge_scores`.
+        rejected by ``merge_scores``.
         """
         return {}
 
@@ -107,8 +107,8 @@ class Solver(ABC):
             Prepared, whitened data the fit will use.
         score
             Cross-validates a sequence of fixed configurations and returns one
-            :class:`~ncrf._crossvalidation.CVResult` each. Call it as often as
-            the search needs; each call fits every configuration on every fold.
+            :class:`~ncrf.CVResult` each. Call it as often as the search needs;
+            each call fits every configuration on every fold.
 
         Returns
         -------

@@ -23,6 +23,7 @@ Fitting pipeline
     RegressionData
     NCRFEstimator
     CrossValidation
+    CVResult
 
 Models and fits
 ---------------

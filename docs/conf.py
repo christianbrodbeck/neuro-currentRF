@@ -93,6 +93,7 @@ qualname_overrides = {
     "ncrf._model.NCRF": "ncrf.NCRF",
     "ncrf._data.RegressionData": "ncrf.RegressionData",
     "ncrf._ncrf.fit_ncrf": "ncrf.fit_ncrf",
+    "ncrf._crossvalidation.CVResult": "ncrf.CVResult",
 }
 
 # -- intersphinx -----------------------------------------------------------------------

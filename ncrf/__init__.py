@@ -7,7 +7,7 @@ orchestrator, pluggable :class:`Solver` configurations, the reusable fitted
 """
 
 from ._data import RegressionData
-from ._crossvalidation import CrossValidation
+from ._crossvalidation import CrossValidation, CVResult
 from ._model import NCRFEstimator, NCRF, NCRFFit
 from ._metrics import explained_variance, l2_error
 from ._solvers import ChampLasso, ChampLassoFit, Solver, SolverFit
