@@ -337,10 +337,11 @@ class RegressionData:
             if stim_dimensions(ss) != design.stim_dims:
                 raise ValueError(f"{stim=}: segment {i_segment} dimensions incompatible with first segment")
 
-            # Extract and normalize MEG array
-            y = m.get_data(('sensor', 'time'))
-            y_ = y.astype(np.float64, copy=False)
-            y = y_ if (in_place or y_.base is None) else y_.copy()
+            # Extract and normalize MEG array; ``y`` is divided by norm_factor below,
+            # so it must not still be backed by the caller's NDVar
+            y = m.get_data(('sensor', 'time')).astype(np.float64, copy=False)
+            if not in_place and np.shares_memory(y, m.x):
+                y = y.copy()
 
             # Build basis-projected covariate matrix
             raw_covs = covariate_from_stim(ss, fl_rep, st_rep)

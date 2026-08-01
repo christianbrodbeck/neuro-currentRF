@@ -129,6 +129,21 @@ def test_merge_scores_rejects_shadowing():
         merge_scores(metrics, {'cross_fit': 1.0, 'l2_error': 0.0})
 
 
+@pytest.mark.parametrize('dtype', [np.float64, np.float32])
+def test_from_data_does_not_modify_meg(dtype):
+    """from_data() rescales the MEG array, which must be its own copy by default."""
+    rng = np.random.RandomState(0)
+    time = UTS(0, 0.01, 200)
+    meg = NDVar(rng.normal(size=(3, 200)).astype(dtype), (SENSOR, time))
+    stim = NDVar(rng.normal(size=200), (time,), name='x')
+    before = meg.x.copy()
+
+    data = RegressionData.from_data([meg], [[stim]], 0, 0.05)
+
+    np.testing.assert_array_equal(meg.x, before)
+    assert not np.shares_memory(data.meg[0], meg.x)
+
+
 def test_whitening_guard():
     data = RegressionData.__new__(RegressionData)
     data.is_whitened = True
