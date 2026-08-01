@@ -367,11 +367,11 @@ class RegressionData:
 
         if scale is not None:
             baseline, stim_scaling = get_scaling(stim, design, scale)
-            # Center first, so that spectral norms are measured on centered covariates
-            data = data.normalize(replace(design, stim_baseline=baseline))
-            if scale == 'spectral':
-                stim_scaling = data._spectral_norms()
-            data = data.normalize(replace(data.design, stim_scaling=stim_scaling, scale=scale))
+            if stim_scaling is None:
+                # 'spectral': measured on the centered covariates, so center first
+                data = data.normalize(replace(design, stim_baseline=baseline))
+                design, stim_scaling = data.design, data._spectral_norms()
+            data = data.normalize(replace(design, stim_baseline=baseline, stim_scaling=stim_scaling, scale=scale))
         return data
 
     def __iter__(self) -> Iterator[TrialData]:
