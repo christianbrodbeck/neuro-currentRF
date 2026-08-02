@@ -31,12 +31,6 @@ def get_scaling(
 ) -> tuple[FloatArray, FloatArray | None]:
     """Stimulus centering and scaling values, one per expanded covariate channel.
 
-    Both describe the predictor itself, and are therefore measured on all of its
-    samples, whether or not the corresponding covariate rows survive the
-    lag-validity crop. The ``'spectral'`` scale is not a property of the predictor
-    and is computed from the covariates instead (see
-    :meth:`RegressionData._spectral_norms`).
-
     Parameters
     ----------
     stim
@@ -47,7 +41,9 @@ def get_scaling(
     scale
         Compute the ``'l1'`` (mean absolute deviation) or ``'l2'`` (standard
         deviation) scale of each predictor. Any other value yields ``None`` for the
-        scaling, since it is then not derived from the stimulus.
+        scaling, since it is then not derived from the stimulus. The ``'spectral'``
+        scale is not a property of the predictor and is computed from the
+        covariates instead (see :meth:`RegressionData._spectral_norms`).
 
     Returns
     -------
@@ -87,9 +83,6 @@ def _assert_varying(
         design: TRFDesign,
 ) -> None:
     """Check that every predictor channel varies over time.
-
-    Checked here, where the offending predictor can be named, rather than when
-    the resulting scaling factor of 0 turns up in :func:`_check_scaling`.
 
     Parameters
     ----------
@@ -379,8 +372,7 @@ class RegressionData:
                 if x.get_dim('time') != meg_time:
                     raise ValueError(f"segment {i_segment} stim {x!r}: time axis incompatible with meg")
 
-            # Extract and normalize MEG array; ``y`` is divided by norm_factor below,
-            # so it must not still be backed by the caller's NDVar
+            # Extract and normalize MEG array
             y = m.get_data(('sensor', 'time')).astype(np.float64, copy=False)
             if not in_place and np.shares_memory(y, m.x):
                 y = y.copy()

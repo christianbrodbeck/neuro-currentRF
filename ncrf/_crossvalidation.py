@@ -25,7 +25,7 @@ from tqdm import tqdm
 
 from ._data import RegressionData
 from ._metrics import merge_scores
-from ._typing import FloatArray
+from ._typing import FloatArray, IndexArray
 
 if TYPE_CHECKING:
     from ._model import NCRFEstimator, NCRF
@@ -200,7 +200,31 @@ def crossvalidate(
 
 
 class TimeSeriesSplit:
-    """Split contiguous time indices into ordered train/test windows."""
+    """Split contiguous time indices into ordered train/test windows.
+
+    The last ``p`` windows of the time series are held out one at a time, and
+    each split trains on the samples preceding its window, so training data
+    always comes before the held-out data. Successive splits move the validation
+    window forward in time and thus train on progressively more data.
+
+    Parameters
+    ----------
+    r
+        Size of each validation window relative to the samples left for
+        training: for ``n`` samples the window is ``ceil(r / (1 + r) * n)``
+        samples long.
+    p
+        Number of splits.
+    d
+        Number of samples to skip between the end of the training window and the
+        start of the validation window. Set it to the TRF length so that lagged
+        predictors in the training data do not reach into the held-out window.
+
+    Notes
+    -----
+    Only the length of the array passed to :meth:`split` is used; the splits are
+    index arrays that the caller applies to the data itself.
+    """
 
     def __init__(self, r: float = 0.05, p: int = 5, d: int = 100):
         self.ratio = r
@@ -211,7 +235,7 @@ class TimeSeriesSplit:
         r, p, d = self.ratio, self.p, self.d
         return f'{type(self).__name__}({r=}, {p=}, {d=})'
 
-    def _iter_part_masks(self, X: Sequence[object] | FloatArray) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+    def _iter_part_masks(self, X: FloatArray) -> Iterator[tuple[np.ndarray, np.ndarray]]:
         """Yield boolean masks for each backward-moving validation split."""
         n_v = ceil(self.ratio / (1 + self.ratio) * len(X))
         for i in range(self.p, 0, -1):
@@ -224,8 +248,22 @@ class TimeSeriesSplit:
                 test_mask[-i * n_v:-(i - 1) * n_v] = True
             yield train_mask, test_mask
 
-    def split(self, X: Sequence[object] | FloatArray) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+    def split(self, X: FloatArray) -> Iterator[tuple[IndexArray, IndexArray]]:
         """Yield integer index arrays for each validation split.
+
+        Parameters
+        ----------
+        X
+            Time course defining the number of samples to split; only its length
+            is used.
+
+        Yields
+        ------
+        train_index
+            Time indices preceding the validation window, excluding the
+            ``d``-sample gap.
+        test_index
+            Time indices of the validation window.
 
         Raises
         ------
@@ -238,7 +276,5 @@ class TimeSeriesSplit:
             train_index = indices[train_mask]
             test_index = indices[test_mask]
             if not len(train_index):
-                # Silently yielding an empty fold would divide the data by
-                # sqrt(0) in RegressionData.timeslice()
                 raise ValueError(f"{len(X)} samples are not enough for {self.p} cross-validation folds with a {self.d}-sample gap; use fewer folds, a shorter TRF, or more data")
             yield train_index, test_index
