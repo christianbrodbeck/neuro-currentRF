@@ -75,7 +75,7 @@ class NCRF:
         if design is self.design:
             return self.theta
         self.design.assert_compatible(design)
-        design.assert_same_normalization(self.design)
+        design.normalization_to(self.design, assert_applied=True)
         return self.theta
 
     def _predict_whitened(self, theta: FloatArray, covariate: FloatArray) -> FloatArray:

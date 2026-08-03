@@ -475,7 +475,7 @@ class RegressionData:
             that is not finite and strictly positive.
         """
         self.design.assert_compatible(design)
-        baseline, scaling = self.design.pending_normalization(design)
+        baseline, scaling = self.design.normalization_to(design)
         if baseline is None and scaling is None:
             return replace(self, design=design)
 

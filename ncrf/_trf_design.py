@@ -12,7 +12,7 @@ so that response functions can be reconstructed without keeping the full
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from eelbrain import NDVar
 import numpy as np
@@ -217,37 +217,22 @@ class TRFDesign:
             i += n
         return out
 
-    def assert_same_normalization(self, other: TRFDesign) -> None:
-        """Check that ``other`` records the same centering and scaling as this design.
-
-        Parameters
-        ----------
-        other
-            Design to compare against.
-
-        Raises
-        ------
-        ValueError
-            If the designs record different centering or scaling.
-        """
-        if other is self:
-            return
-        for attr, name in (('stim_baseline', 'centering'), ('stim_scaling', 'scaling')):
-            mine, theirs = getattr(self, attr), getattr(other, attr)
-            # ``is`` also covers None, and the same array carrying non-finite values,
-            # which np.array_equal() would report as unequal to itself
-            if mine is not theirs and not np.array_equal(mine, theirs):
-                raise ValueError(f"covariates carry different {name} than the design records; prepare the data with scale=None and apply the design's own normalization with data.normalize(design)")
-        if self.scale != other.scale:
-            raise ValueError(f"covariates carry {self.scale!r} scaling, the design records {other.scale!r}; prepare the data with scale=None and apply the design's own normalization with data.normalize(design)")
-
-    def pending_normalization(self, target: TRFDesign) -> tuple[FloatArray | None, FloatArray | None]:
-        """The centering and scaling of ``target`` that covariates carrying this design still need.
+    def normalization_to(
+            self,
+            target: TRFDesign,
+            *,
+            assert_applied: bool = False,
+    ) -> tuple[FloatArray | None, FloatArray | None]:
+        """The centering and scaling that take covariates carrying this design to ``target``.
 
         Parameters
         ----------
         target
             Design describing the normalization the covariates should end up with.
+        assert_applied
+            Require ``target``'s normalization to be applied already, i.e. raise
+            instead of returning a step that is still missing. Use this where the
+            covariates have to be on ``target``'s scale, such as applying a fitted model.
 
         Returns
         -------
@@ -260,15 +245,15 @@ class TRFDesign:
         ------
         ValueError
             If a step that is already applied differs from ``target``, since it
-            cannot be applied a second time.
+            cannot be applied a second time; with ``assert_applied``, also if a
+            step is still missing.
         """
-        applied = replace(
-            self,
-            stim_baseline=target.stim_baseline if self.stim_baseline is None else self.stim_baseline,
-            stim_scaling=target.stim_scaling if self.stim_scaling is None else self.stim_scaling,
-            scale=target.scale if self.stim_scaling is None else self.scale,
-        )
-        applied.assert_same_normalization(target)
+        for attr, name in (('stim_baseline', 'centering'), ('stim_scaling', 'scaling')):
+            mine, theirs = getattr(self, attr), getattr(target, attr)
+            if (assert_applied or mine is not None) and mine is not theirs and not np.array_equal(mine, theirs):
+                raise ValueError(f"covariates carry different {name} than the design records; prepare the data with scale=None and apply the design's own normalization with data.normalize(design)")
+        if (assert_applied or self.stim_scaling is not None) and self.scale != target.scale:
+            raise ValueError(f"covariates carry {self.scale!r} scaling, the design records {target.scale!r}; prepare the data with scale=None and apply the design's own normalization with data.normalize(design)")
         return (
             target.stim_baseline if self.stim_baseline is None else None,
             target.stim_scaling if self.stim_scaling is None else None,
