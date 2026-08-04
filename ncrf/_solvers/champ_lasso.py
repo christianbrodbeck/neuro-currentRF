@@ -22,6 +22,7 @@ from scipy import linalg
 from scipy.signal import find_peaks
 from tqdm import tqdm
 
+from .._crossvalidation import crossvalidate
 from .._fastac import Fasta
 from .._data import RegressionData
 from .._forward import ForwardModel
@@ -33,8 +34,8 @@ from .._typing import FloatArray, GradientFunction, MuArg, ObjectiveFunction
 from .base import Solver, SolverFit
 
 if TYPE_CHECKING:
-    from .._crossvalidation import CVResult
-    from .base import ScoreCandidates
+    from .._crossvalidation import CrossValidation, CVResult
+    from .._model import NCRFEstimator
 
 #: Per-iteration quantities :class:`ChampLasso` can record, in :class:`ChampLassoHistory`.
 #: Each has a matching ``store_*`` flag on :class:`ChampLasso`.
@@ -531,20 +532,20 @@ class ChampLasso(Solver):
 
     def search(
             self,
-            forward: ForwardModel,
+            estimator: NCRFEstimator,
             data: RegressionData,
-            score: ScoreCandidates,
+            cv: CrossValidation,
     ) -> tuple[ChampLasso, list[CVResult]]:
         """Resolve ``mu``, and cross-validate it when there is more than one value."""
-        candidates = self.candidates(forward, data)
+        candidates = self.candidates(estimator.forward, data)
         if len(candidates) == 1:
             return candidates[0], []
-        cv_results = list(score(candidates))
+        cv_results = crossvalidate(estimator, data, candidates, cv)
         # Extend before selecting, so that the estimation-stability criterion is
         # applied to the complete cross-fit search range
         extension = self._extend_grid(cv_results)
         if extension:
-            cv_results.extend(score(extension))
+            cv_results.extend(crossvalidate(estimator, data, extension, cv))
         return self._select(cv_results), cv_results
 
     def _select(self, cv_results: Sequence[CVResult]) -> ChampLasso:

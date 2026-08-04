@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from eelbrain import NDVar, UTS, fmtxt
 import numpy as np
 
-from ._crossvalidation import CrossValidation, CVResult, crossvalidate
+from ._crossvalidation import CrossValidation, CVResult
 from ._data import RegressionData
 from ._trf_design import TRFDesign
 from ._forward import ForwardModel
@@ -339,11 +339,7 @@ class NCRFEstimator:
         data = self.forward.whiten(data, accept_whitening)
         if cv is None:
             cv = CrossValidation()
-
-        def score(candidates: Sequence[Solver]) -> list[CVResult]:
-            return crossvalidate(self, data, candidates, cv.n_splits, cv.n_workers)
-
-        solver, cv_results = solver.search(self.forward, data, score)
+        solver, cv_results = solver.search(self, data, cv)
         model, solver_fit = self.fit_model(data, solver, verbose)
         scores = merge_scores(
             model.evaluate(data, accept_whitening=True),

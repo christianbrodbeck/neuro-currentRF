@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from ncrf import ChampLasso
+from ncrf import ChampLasso, CrossValidation
 from ncrf import _crossvalidation as cv
 from ncrf._solvers import champ_lasso
 
@@ -139,7 +139,7 @@ def test_crossvalidate_progress(monkeypatch):
     candidates = tuple(ChampLasso(mu=mu) for mu in (0.1, 0.2, 0.3))
 
     results = cv.crossvalidate(
-        object(), object(), candidates, 2, n_workers=0,
+        object(), object(), candidates, CrossValidation(n_splits=2, n_workers=0),
     )
 
     assert [result.solver.mu for result in results] == [0.1, 0.2, 0.3]
@@ -162,23 +162,24 @@ def test_crossvalidate_propagates_worker_error(monkeypatch):
 
     with pytest.raises(RuntimeError, match="worker failed"):
         cv.crossvalidate(
-            object(), object(), candidates, 2, n_workers=2,
+            object(), object(), candidates, CrossValidation(n_splits=2, n_workers=2),
         )
 
     assert progress.updates == [1]
     assert progress.closed
 
 
-def test_search_single_candidate_skips_crossvalidation():
-    score = Mock()
+def test_search_single_candidate_skips_crossvalidation(monkeypatch):
+    crossvalidate = Mock()
+    monkeypatch.setattr(champ_lasso, 'crossvalidate', crossvalidate)
 
-    solver, cv_results = ChampLasso(mu=0.1).search(None, None, score)
+    solver, cv_results = ChampLasso(mu=0.1).search(Mock(), None, None)
 
     assert (solver.mu, cv_results) == (0.1, [])
-    score.assert_not_called()
+    crossvalidate.assert_not_called()
 
 
-def test_search_extends_grid_before_es_selection():
+def test_search_extends_grid_before_es_selection(monkeypatch):
     """The boundary extension follows the cross-fit winner, not the ES selection."""
     mus = (0.1, 0.2, 0.3, 0.4)
     extension = [float(mu) for mu in np.logspace(-2, -1, 4)[:-1]]
@@ -193,12 +194,17 @@ def test_search_extends_grid_before_es_selection():
         extension[2]: (0.8, 0.5),
     }
     calls = []
+    estimator = Mock()
+    cv_config = CrossValidation(n_splits=2, n_workers=0)
 
-    def score(candidates):
+    def crossvalidate(called_estimator, data, candidates, called_cv):
+        assert (called_estimator, called_cv) == (estimator, cv_config)
         calls.append([solver.mu for solver in candidates])
         return [_cv_result(solver.mu, cross_fit=scores[solver.mu][0], es=scores[solver.mu][1]) for solver in candidates]
 
-    solver, returned_results = ChampLasso(mu=mus, use_es=True).search(None, None, score)
+    monkeypatch.setattr(champ_lasso, 'crossvalidate', crossvalidate)
+
+    solver, returned_results = ChampLasso(mu=mus, use_es=True).search(estimator, None, cv_config)
 
     assert calls == [list(mus), extension]
     # ES minimum above the extended cross-fit winner (extension[1]), not the 0.3 of the truncated grid
@@ -206,15 +212,16 @@ def test_search_extends_grid_before_es_selection():
     assert [result.solver.mu for result in returned_results] == [*mus, *extension]
 
 
-def test_search_es_is_independent_of_result_order():
+def test_search_es_is_independent_of_result_order(monkeypatch):
     results = [
         _cv_result(0.1, es=5.0, cross_fit=3.0),
         _cv_result(0.3, es=2.0, cross_fit=2.0),
         _cv_result(0.4, es=3.0, cross_fit=4.0),
         _cv_result(0.2, es=4.0, cross_fit=1.0),
     ]
+    monkeypatch.setattr(champ_lasso, 'crossvalidate', lambda *args: results.copy())
 
-    solver, returned_results = ChampLasso(mu=(0.1, 0.2, 0.3, 0.4), use_es=True).search(None, None, lambda candidates: results.copy())
+    solver, returned_results = ChampLasso(mu=(0.1, 0.2, 0.3, 0.4), use_es=True).search(Mock(), None, None)
 
     assert solver.mu == 0.3
     assert returned_results == results

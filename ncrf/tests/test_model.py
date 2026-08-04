@@ -84,30 +84,23 @@ def test_fit_accepts_generic_solver(monkeypatch):
     selected_solver = _ZeroSolver()
     cv_results = [Mock()]
     searching_solver.search.return_value = (selected_solver, cv_results)
-    monkeypatch.setattr('ncrf._model.crossvalidate', Mock(return_value=cv_results))
     cv = CrossValidation(n_splits=4, n_workers=0)
 
     result = estimator.fit(data, searching_solver, cv=cv)
 
     assert result.solver is selected_solver
     assert result._cv_results is cv_results
-    # search() is handed a callable that cross-validates on the configured folds
-    forward, search_data, score = searching_solver.search.call_args.args
-    assert (forward, search_data) == (estimator.forward, data)
-    candidates = (Mock(), Mock())
-    assert score(candidates) is cv_results
-    from ncrf._model import crossvalidate
-    crossvalidate.assert_called_once_with(estimator, data, candidates, 4, 0)
+    # search() gets what it needs to cross-validate on the configured folds
+    searching_solver.search.assert_called_once_with(estimator, data, cv)
 
 
 def test_default_search_contract():
     """A solver implementing only solve() is a fixed configuration that needs no CV."""
     solver = _ZeroSolver()
-    score = Mock()
 
     assert solver.without_history() is solver
-    assert solver.search(None, None, score) == (solver, [])
-    score.assert_not_called()
+    # no estimator or cv config is touched, since nothing is cross-validated
+    assert solver.search(None, None, None) == (solver, [])
 
     # a generic table renders from whatever score keys are present
     cv_results = [

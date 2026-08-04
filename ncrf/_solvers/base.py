@@ -2,10 +2,9 @@
 
 A solver is immutable configuration that estimates NCRF weights (:meth:`Solver.solve`).
 A solver that has more than one configuration to choose from selects one in
-:meth:`Solver.search`, which is handed a callable that cross-validates
-configurations on demand. That one hook owns the whole search, so a solver can
-score a fixed grid, extend it, or refine it in several passes without the
-estimator or the cross-validation machinery knowing anything about it.
+:meth:`Solver.search`, calling ``crossvalidate`` as often as it needs to. That
+one hook owns the whole search, so a solver can score a fixed grid, extend it,
+or refine it in several passes without the estimator knowing anything about it.
 
 :meth:`SolverFit.score` contributes solver-specific scores to compare
 configurations by. Every hook has a working default, so a new solver only needs
@@ -24,15 +23,10 @@ from .._repr import _count_repr
 from .._typing import FloatArray
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-    from typing import TypeAlias
-
-    from .._crossvalidation import CVResult
+    from .._crossvalidation import CrossValidation, CVResult
     from .._data import RegressionData
     from .._forward import ForwardModel
-
-    #: Cross-validates fixed solver configurations, returning one result each.
-    ScoreCandidates: TypeAlias = Callable[[Sequence['Solver']], list[CVResult]]
+    from .._model import NCRFEstimator
 
 
 @dataclass(frozen=True, repr=False)
@@ -90,9 +84,9 @@ class Solver(ABC):
 
     def search(
             self,
-            forward: ForwardModel,
+            estimator: NCRFEstimator,
             data: RegressionData,
-            score: ScoreCandidates,
+            cv: CrossValidation,
     ) -> tuple[Solver, list[CVResult]]:
         """Select the fixed configuration to fit on all of the data.
 
@@ -101,14 +95,16 @@ class Solver(ABC):
 
         Parameters
         ----------
-        forward
-            Forward model the fit will use.
+        estimator
+            Estimator running the fit; its
+            :attr:`~ncrf.NCRFEstimator.forward` is the forward model the fit
+            will use.
         data
             Prepared, whitened data the fit will use.
-        score
-            Cross-validates a sequence of fixed configurations and returns one
-            :class:`~ncrf.CVResult` each. Call it as often as the search needs;
-            each call fits every configuration on every fold.
+        cv
+            Cross-validation configuration to score candidates with. Pass it to
+            ``ncrf._crossvalidation.crossvalidate`` as often as the search needs;
+            each call fits every candidate on every fold.
 
         Returns
         -------
@@ -116,8 +112,8 @@ class Solver(ABC):
             The configuration to fit, which has to be fixed enough for
             :meth:`solve`.
         cv_results
-            Every result obtained from ``score``, empty when the search did not
-            cross-validate.
+            Every result obtained from cross-validation, empty when the search
+            did not cross-validate.
         """
         return self, []
 

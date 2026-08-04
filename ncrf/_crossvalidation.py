@@ -146,13 +146,13 @@ def crossvalidate(
         estimator: NCRFEstimator,
         data: RegressionData,
         candidates: Sequence[Solver],
-        n_splits: int,
-        n_workers: int | None = None,
+        cv: CrossValidation,
 ) -> list[CVResult]:
     """Perform cross-validation over a set of solver candidates.
 
     Each candidate is fit and scored on the same folds, and the resulting
-    :class:`CVResult` objects are returned for the caller to compare.
+    :class:`CVResult` objects are returned for the caller to compare. This is what
+    :meth:`~ncrf.Solver.search` calls to score the configurations it chooses between.
 
     Parameters
     ----------
@@ -163,12 +163,8 @@ def crossvalidate(
         M/EEG data and the corresponding stimulus variables.
     candidates
         Fixed solver configurations to compare.
-    n_splits
-        number of folds for cross-validation.
-    n_workers
-        Number of workers to use for cross-validation.
-        ``None`` to use the library's configured default.
-        ``0`` to run without :mod:`multiprocessing`.
+    cv
+        Folds and worker count to score the candidates on.
 
     Returns
     -------
@@ -176,6 +172,7 @@ def crossvalidate(
         Cross-validation results.
     """
     logging.getLogger(__name__).info('Crossvalidation initiated!')
+    n_workers = cv.n_workers
     if n_workers is None:
         n = CONFIG['n_workers'] or 1  # by default this is cpu_count()
         n_workers = ceil(n / 8)
@@ -184,13 +181,13 @@ def crossvalidate(
     with tqdm(total=len(candidates), desc="Crossvalidation", unit='candidate', unit_scale=True) as prog:
         if n_workers == 0:
             for candidate in candidates:
-                results.append(_score_candidate(estimator, data, n_splits, candidate))
+                results.append(_score_candidate(estimator, data, cv.n_splits, candidate))
                 prog.update()
         else:
             with Pool(
                     processes=n_workers,
                     initializer=_initialize_worker,
-                    initargs=(_score_candidate, estimator, data, n_splits),
+                    initargs=(_score_candidate, estimator, data, cv.n_splits),
             ) as pool:
                 for result in pool.imap_unordered(_score_worker, candidates):
                     results.append(result)

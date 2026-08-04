@@ -75,13 +75,12 @@ Solvers and cross-validation
 ----------------------------
 
 A :class:`~ncrf.Solver` is a configuration for estimating the coefficient
-matrix. A solver that has more than one configuration to choose from selects one
-in :meth:`~ncrf.Solver.search`, which :class:`~ncrf.NCRFEstimator` hands a
-callable that cross-validates configurations on the folds
-:class:`~ncrf.CrossValidation` describes. That one hook owns the whole search:
-:class:`~ncrf.ChampLasso` uses it to score its ``mu`` grid, extend the grid when
-the winner is on a boundary, and apply the estimation-stability criterion. The
-estimator then fits the selected configuration on all of the data.
+matrix (the NCRF). A solver that has more than one configuration to choose from
+selects one in :meth:`~ncrf.Solver.search`, using a :class:`~ncrf.CrossValidation`
+configuration describing the folds.
+:class:`~ncrf.ChampLasso` uses it to score its ``mu`` grid, extend the
+grid when the winner is on a boundary, and apply the estimation-stability
+criterion. The estimator then fits the selected configuration on all of the data.
 
 The generic :class:`~ncrf.SolverFit` contains the fitted coefficient matrix;
 concrete solvers can add algorithm-specific state and scores. For example,
