@@ -259,6 +259,10 @@ class NCRFEstimator:
     fitted state.
     """
 
+    #: The internal forward-model state (lead field, whitening filter, and
+    #: source, sensor, and orientation dimensions).
+    forward: ForwardModel
+
     def __init__(
             self,
             lead_field: NDVar,

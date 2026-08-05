@@ -9,14 +9,10 @@ from unittest.mock import MagicMock, Mock
 import numpy as np
 import pytest
 
-from ncrf import CrossValidation, SolverFit
-from ncrf._crossvalidation import CVResult
-from ncrf._data import RegressionData, covariate_from_stim
-from ncrf._forward import ForwardModel
+from ncrf import CrossValidation, CVResult, ForwardModel, NCRF, NCRFEstimator, RegressionData, Solver, SolverFit, TRFDesign
+from ncrf._data import covariate_from_stim
 from ncrf._linalg import gaussian_basis
 from ncrf._metrics import merge_scores
-from ncrf._model import NCRFEstimator, NCRF
-from ncrf._solvers import Solver
 from .fetch import load
 
 from eelbrain import Categorial, NDVar, Scalar, Sensor, UTS, concatenate
@@ -163,7 +159,7 @@ def _forward(seed: int = 1) -> ForwardModel:
     return ForwardModel(rng.normal(size=(3, 4)), np.eye(3), Scalar('source', range(4)), SENSOR, None)
 
 
-def _model(design, n_coefficients: int, seed: int = 1) -> NCRF:
+def _model(design: TRFDesign, n_coefficients: int, seed: int = 1) -> NCRF:
     rng = np.random.RandomState(seed)
     return NCRF(_forward(seed), rng.normal(size=(4, n_coefficients)), design)
 

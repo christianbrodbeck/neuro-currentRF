@@ -48,8 +48,6 @@ nitpick_ignore = [
     # classes when Sphinx expands npt.NDArray[np.float64] in signatures.
     ("py:class", "numpy._typing._array_like.NDArray"),
     ("py:class", "numpy.float64"),
-    # Internal metadata type exposed by the RegressionData dataclass signature.
-    ("py:class", "ncrf._trf_design.TRFDesign"),
 ]
 
 # A list of ignored prefixes for module index sorting.
@@ -88,13 +86,6 @@ napoleon_use_param = True
 napoleon_use_ivar = False
 napoleon_use_keyword = True
 napoleon_use_rtype = True
-
-qualname_overrides = {
-    "ncrf._model.NCRF": "ncrf.NCRF",
-    "ncrf._data.RegressionData": "ncrf.RegressionData",
-    "ncrf._ncrf.fit_ncrf": "ncrf.fit_ncrf",
-    "ncrf._crossvalidation.CVResult": "ncrf.CVResult",
-}
 
 # -- intersphinx -----------------------------------------------------------------------
 intersphinx_mapping = get_intersphinx_mapping(

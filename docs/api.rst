@@ -53,3 +53,12 @@ Metrics
 
     explained_variance
     l2_error
+
+Model components
+----------------
+
+.. autosummary::
+    :toctree: generated/
+
+    ForwardModel
+    TRFDesign

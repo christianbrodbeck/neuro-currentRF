@@ -1,6 +1,7 @@
 """Forward model and noise covariance with derived whitened quantities."""
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any
 
 from eelbrain import NDVar, Sensor, SourceSpace, Space, VolumeSourceSpace
@@ -13,6 +14,7 @@ from ._repr import _forward_summary
 from ._typing import FloatArray
 
 
+@dataclass(eq=False, repr=False)
 class ForwardModel:
     """Forward model and noise covariance with derived whitened quantities.
 
@@ -36,19 +38,21 @@ class ForwardModel:
         Orientation dimension (``None`` for fixed orientation).
     """
 
-    def __init__(
-            self,
-            lead_field: FloatArray,
-            noise_covariance: FloatArray,
-            source: SourceSpace | VolumeSourceSpace,
-            sensor: Sensor,
-            space: Space | None,
-    ) -> None:
-        self.lead_field = lead_field
-        self.noise_covariance = noise_covariance
-        self.source = source
-        self.sensor = sensor
-        self.space = space
+    lead_field: FloatArray
+    noise_covariance: FloatArray
+    source: SourceSpace | VolumeSourceSpace
+    sensor: Sensor
+    space: Space | None
+    #: Inverse square root of :attr:`~ncrf.ForwardModel.noise_covariance` used to whiten sensor data.
+    whitening_filter: FloatArray = field(init=False)
+    #: Whitened and spectrally normalized :attr:`~ncrf.ForwardModel.lead_field` used by solvers.
+    whitened_lead_field: FloatArray = field(init=False)
+    #: :attr:`~ncrf.ForwardModel.noise_covariance` transformed by :attr:`~ncrf.ForwardModel.whitening_filter`.
+    whitened_noise_covariance: FloatArray = field(init=False)
+    #: Spectral norm removed from the whitened lead field.
+    lead_field_scaling: float = field(init=False)
+
+    def __post_init__(self) -> None:
         self._prewhiten()
 
     def __repr__(self) -> str:
@@ -56,7 +60,7 @@ class ForwardModel:
 
     @classmethod
     def from_lead_field(cls, lead_field: NDVar, noise_covariance: FloatArray) -> ForwardModel:
-        """Construct from an Eelbrain lead-field :class:`NDVar`."""
+        """Construct from an Eelbrain lead-field :class:`~eelbrain.NDVar`."""
         if lead_field.has_dim('space'):
             g = lead_field.get_data(dims=('sensor', 'source', 'space')).astype(np.float64)
             g = g.reshape(g.shape[0], -1)
@@ -109,7 +113,7 @@ class ForwardModel:
             data: RegressionData,
             accept_whitening: bool = False,
     ) -> RegressionData:
-        """Whiten ``data`` with :attr:`whitening_filter`, after checking sensor alignment.
+        """Whiten ``data`` with :attr:`~ncrf.ForwardModel.whitening_filter`, after checking sensor alignment.
 
         Parameters
         ----------

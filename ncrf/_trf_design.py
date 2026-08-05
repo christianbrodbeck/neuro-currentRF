@@ -1,13 +1,13 @@
 """The regression design: how stimuli map onto covariates, and back onto TRFs.
 
 Estimation works in a compact Gabor-basis coefficient space (``theta``).
-:class:`TRFDesign` holds the stimulus and basis metadata that defines this space:
-:meth:`TRFDesign.from_stim` derives it from the predictors, and its layout
-metadata is what :attr:`~ncrf._model.NCRF.h` uses to expand coefficients back into
-response functions. It is small and picklable, and is stored both on
-:class:`~ncrf._data.RegressionData` and on the fitted :class:`~ncrf._model.NCRF`,
-so that response functions can be reconstructed without keeping the full
-(typically much larger) dataset around.
+:class:`~ncrf.TRFDesign` holds the stimulus and basis metadata that defines this
+space: :meth:`~ncrf.TRFDesign.from_stim` derives it from the predictors, and its
+layout metadata is what :attr:`~ncrf.NCRF.h` uses to expand coefficients back
+into response functions. It is small and picklable, and is stored both on
+:class:`~ncrf.RegressionData` and on the fitted :class:`~ncrf.NCRF`, so that
+response functions can be reconstructed without keeping the full (typically
+much larger) dataset around.
 """
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ class TRFDesign:
 
     Use :meth:`from_stim` to derive a design from predictor NDVars.
 
-    Attributes
+    Parameters
     ----------
     basis
         Gaussian basis matrices, one per predictor variable.
@@ -80,12 +80,12 @@ class TRFDesign:
     stim_baseline, stim_scaling
         Centering and scaling applied to the covariates during data preparation,
         one value per expanded covariate channel, or ``None`` when that step was
-        not applied. Set by :meth:`~ncrf._data.RegressionData.normalize`; a design
+        not applied. Set by :meth:`~ncrf.RegressionData.normalize`; a design
         that has them set describes covariates that carry them.
-        :attr:`~ncrf._model.NCRF.h_scaled` uses :attr:`stim_scaling` to restore the
+        :attr:`~ncrf.NCRF.h_scaled` uses :attr:`~ncrf.TRFDesign.stim_scaling` to restore the
         original stimulus scale.
     scale
-        Which scaling produced :attr:`stim_scaling` (``'l1'``, ``'l2'`` or
+        Which scaling produced :attr:`~ncrf.TRFDesign.stim_scaling` (``'l1'``, ``'l2'`` or
         ``'spectral'``), or ``None`` when the covariates were left unscaled.
     """
 
@@ -166,12 +166,12 @@ class TRFDesign:
 
     @property
     def start_samples(self) -> list[int]:
-        """:attr:`tstart` in samples, one value per predictor."""
+        """:attr:`~ncrf.TRFDesign.tstart` in samples, one value per predictor."""
         return time_samples(self.tstart, self.tstep)
 
     @property
     def stop_samples(self) -> list[int]:
-        """:attr:`tstop` in samples, one value per predictor."""
+        """:attr:`~ncrf.TRFDesign.tstop` in samples, one value per predictor."""
         return time_samples(self.tstop, self.tstep)
 
     @property
@@ -194,7 +194,7 @@ class TRFDesign:
         """Sum of each covariate column's basis function, one value per column.
 
         The covariate for a constant stimulus of 1, for rows whose full lag window
-        lies inside the stimulus; i.e. the offset a unit :attr:`stim_baseline`
+        lies inside the stimulus; i.e. the offset a unit :attr:`~ncrf.TRFDesign.stim_baseline`
         introduces in each covariate column.
         """
         return np.concatenate([np.tile(basis.sum(0), n) for basis, n in zip(self.basis, self.stim_lens)])
