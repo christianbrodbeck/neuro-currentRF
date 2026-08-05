@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from ncrf._fastac import _update_coefs
+from ncrf._fastac import Fasta
 from ncrf._penalties import g, g_group, proxg_group_opt, shrink
 
 
@@ -34,7 +34,8 @@ def test_update_coefs_subgradient():
         (lambda v: g(v, mu), lambda v, t: shrink(v, mu * t)),
         (lambda v: g_group(v, mu), lambda v, t: proxg_group_opt(v, mu * t)),
     ]:
-        z, _, sg, _, _ = _update_coefs(x, tau, grad, prox, lambda v: 0.5 * (v ** 2).sum(), penalty, 0.5, np.inf)
+        fasta = Fasta(lambda v: 0.5 * (v ** 2).sum(), penalty, None, prox, beta=0.5)
+        z, _, sg, _, _ = fasta._update_coefs(x, tau, grad, np.inf)
         # sg = (x_hat - z) / tau, i.e. the term FASTA balances against the gradient
         np.testing.assert_allclose(sg, (x - tau * grad - z) / tau)
         assert np.abs(sg).max() > 0
