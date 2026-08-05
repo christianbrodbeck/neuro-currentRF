@@ -11,6 +11,7 @@ model with training scores and solver-specific provenance.
 from __future__ import annotations
 
 from functools import cached_property
+from typing import Any
 from collections.abc import Sequence
 
 from eelbrain import NDVar, UTS, fmtxt
@@ -63,6 +64,13 @@ class NCRF:
         n_basis = self.theta.shape[1]
         predictors = tuple(self.design.stim_names)
         return f"<{type(self).__name__}: {_forward_summary(self.forward)}, {_count_repr(n_basis, 'basis coefficient')}, {predictors=}>"
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        # Models pickled before 0.5 have an entirely different attribute layout, but
+        # the same class path, so they would unpickle into an unusable object here.
+        if 'design' not in state:
+            raise RuntimeError("this model was pickled with ncrf < 0.5, whose layout is incompatible with the current one; re-fit it with the current version")
+        self.__dict__.update(state)
 
     def _theta_for(self, data: RegressionData) -> FloatArray:
         """Coefficients, after checking that ``data`` is on the scale they were fit on.
