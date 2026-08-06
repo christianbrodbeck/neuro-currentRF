@@ -528,6 +528,11 @@ class ChampLasso(Solver):
     use_es: bool = False
     store: Sequence[str] = ('objective', 'residual')
 
+    def __post_init__(self) -> None:
+        # a bare string would be iterated character by character
+        if isinstance(self.store, str) or not frozenset(self.store).issubset(QUANTITIES):
+            raise ValueError(f"store={self.store!r}: expected a sequence with any of {QUANTITIES}")
+
     def without_history(self) -> ChampLasso:
         """Disable all per-iteration storage for cross-validation folds."""
         return replace(self, store=())
@@ -652,9 +657,6 @@ class ChampLasso(Solver):
         """Estimate NCRF weights for one prepared, whitened dataset."""
         if not _is_number(self.mu):
             raise ValueError("ChampLasso.solve() requires a fixed numeric mu; use NCRFEstimator.fit() to resolve a grid or mu='auto'")
-        # a bare string would be iterated character by character
-        if isinstance(self.store, str) or not frozenset(self.store).issubset(QUANTITIES):
-            raise ValueError(f"store={self.store!r}: expected a sequence with any of {QUANTITIES}")
         history = ChampLassoHistory(frozenset(self.store))
         state = _ChampLassoState(self, forward)
         state.run(data, history, verbose)

@@ -52,7 +52,7 @@ def test_champ_lasso_auto_candidates(monkeypatch):
 def test_champ_lasso_rejects_invalid_store(store):
     """A misspelled quantity has to be an error rather than silently storing nothing."""
     with pytest.raises(ValueError, match='store='):
-        ChampLasso(mu=0.1, store=store).solve(None, None)
+        ChampLasso(mu=0.1, store=store)
 
 
 def test_history_rejects_unknown_quantity():
