@@ -585,12 +585,17 @@ class ChampLasso(Solver):
         logger.info(f'Best cross-fit mu is {best.mu}: extending range of mu towards the {direction}')
         return tuple(replace(best, mu=float(mu)) for mu in new_mus)
 
-    def cv_table(
-            self,
-            cv_results: Sequence[CVResult],
-            selected: ChampLasso,
-    ) -> fmtxt.Table:
-        """Summarize cross-validation scores by ``mu``."""
+    def cv_table(self, cv_results: Sequence[CVResult]) -> fmtxt.Table:
+        """Summarize cross-validation scores by ``mu``.
+
+        Call this on the configuration :meth:`search` selected; the table warns when
+        its ``mu`` is at the bottom of the grid it was chosen from.
+
+        Parameters
+        ----------
+        cv_results
+            The results the selection was made from.
+        """
         results = sorted(cv_results, key=lambda result: result.solver.mu)
         best_mu = {criterion: select_by_criterion(cv_results, criterion).mu for criterion in ('cross-fit', 'l2/mu')}
 
@@ -604,7 +609,7 @@ class ChampLasso(Solver):
             table.cell(fmtxt.stat(result.scores['l2_error'], fmt, 1 if result.solver.mu == best_mu['l2/mu'] else 0, 1))
             table.cell(fmtxt.stat(result.scores['weighted_l2_error'], fmt=fmt))
             table.cell(fmtxt.stat(result.scores['estimation_stability'], fmt=fmt))
-        if selected.mu == min(result.solver.mu for result in results):
+        if self.mu == min(result.solver.mu for result in results):
             table.caption("Warnings: Best mu is smallest mu")
         return table
 

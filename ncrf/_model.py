@@ -446,7 +446,7 @@ class NCRFFit:
 
     def cv_info(self) -> fmtxt.Table:
         """Summarize stored cross-validation scores in a table."""
-        return self.solver.cv_table(self._require_cv_results(), self.solver)
+        return self.solver.cv_table(self._require_cv_results())
 
     def cv_mu(self, criterion: str = 'cross-fit') -> float:
         """Retrieve best mu based on cross-validation (:class:`ChampLasso` only)

@@ -106,7 +106,7 @@ def test_default_search_contract():
         CVResult(_ZeroSolver(), {'l2_error': 3.0, 'explained_variance': 0.1}),
         CVResult(solver, {'l2_error': 1.0, 'explained_variance': 0.4}),
     ]
-    assert 'l2_error' in str(solver.cv_table(cv_results, solver))
+    assert 'l2_error' in str(solver.cv_table(cv_results))
 
 
 def test_solver_fit_score_defaults_empty():

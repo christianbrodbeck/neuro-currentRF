@@ -124,18 +124,23 @@ class Solver(ABC):
         """
         return self
 
-    def cv_table(
-            self,
-            cv_results: Sequence[CVResult],
-            selected: Solver,
-    ) -> fmtxt.Table:
-        """Summarize cross-validation scores in a table."""
+    def cv_table(self, cv_results: Sequence[CVResult]) -> fmtxt.Table:
+        """Summarize cross-validation scores in a table.
+
+        Call this on the configuration :meth:`search` selected; the table marks it
+        among the candidates it was chosen from.
+
+        Parameters
+        ----------
+        cv_results
+            The results the selection was made from.
+        """
         keys = sorted(cv_results[0].scores)
         table = fmtxt.Table('l' * (len(keys) + 1))
         table.cells('solver', *keys)
         table.midrule()
         for result in cv_results:
-            marker = '*' if result.solver == selected else ''
+            marker = '*' if result.solver == self else ''
             table.cell(f'{result.solver!r}{marker}')
             for key in keys:
                 table.cell(fmtxt.stat(result.scores[key], fmt='%.5f'))
