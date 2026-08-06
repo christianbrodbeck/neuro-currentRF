@@ -40,8 +40,8 @@ def gaussian_basis(
     Returns
     -------
     ndarray
-        Array whose columns contain the basis atoms. Shape ``(n_lags, n_basis)``, with
-        ``n_basis = nlevel - 1``.
+        Array whose columns contain the basis atoms. Shape ``(n_lags, n_atoms)``, with
+        ``n_atoms = nlevel - 1``.
     """
     logger = logging.getLogger(__name__)
     logger.info(f'Using gaussian basis with {basis_std=}')

@@ -66,6 +66,8 @@ class TRFDesign:
     ----------
     basis
         Gaussian basis matrices, one per predictor variable.
+        ``basis[i]`` is shape ``(n_lags, n_atoms)``: each column is a
+        Gaussian bump centered on a distinct lag.
     tstart, tstep, tstop
         TRF timing; ``tstart``/``tstop`` hold one value per predictor.
     basis_std

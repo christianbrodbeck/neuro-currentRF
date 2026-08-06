@@ -41,7 +41,11 @@ class NCRF:
         The internal forward-model state (lead field, whitening filter, and
         source, sensor, and orientation dimensions).
     theta
-        Fitted NCRF coefficients over the Gaussian basis.
+        Fitted NCRF coefficients over the Gaussian basis, shape
+        ``(source, stimulus * lag)``: rows are the source dipoles in
+        lead-field order (orientation varying fastest), columns are
+        the predictors of :attr:`design` concatenated, each ordered by stimulus
+        with lag varying fastest.
     design
         Stimulus, basis, and normalization metadata of the data the model was fit
         on, including the TRF timing (``design.tstart``, ``design.tstep``,
@@ -61,9 +65,9 @@ class NCRF:
         self.design = design
 
     def __repr__(self) -> str:
-        n_basis = self.theta.shape[1]
+        n_atoms = self.theta.shape[1]
         predictors = tuple(self.design.stim_names)
-        return f"<{type(self).__name__}: {_forward_summary(self.forward)}, {_count_repr(n_basis, 'basis coefficient')}, {predictors=}>"
+        return f"<{type(self).__name__}: {_forward_summary(self.forward)}, {_count_repr(n_atoms, 'basis coefficient')}, {predictors=}>"
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         # Models pickled before 0.5 have an entirely different attribute layout, but
@@ -194,7 +198,7 @@ class NCRF:
 
     @cached_property
     def h(self) -> NDVar | list[NDVar]:
-        """The spatio-temporal response function as Eelbrain NDVars.
+        """The spatio-temporal response function as (list of) :class:`eelbrain.NDVar`.
 
         Expands the Gabor coefficients in :attr:`theta` back into labeled response
         functions, one per predictor variable (or a bare NDVar when the model was
@@ -211,16 +215,19 @@ class NCRF:
         h = []
         start = 0
         for basis, stim_len, dim, name, tstart in zip(design.basis, design.stim_lens, design.stim_dims, design.stim_names, design.tstart):
-            # This predictor's columns of theta, as (stim_len, source, basis)
+            # Index corresponding theta; theta shape: (source, stimulus * lag)
             stop = start + basis.shape[1] * stim_len
-            x = self.theta[:, start:stop].reshape((self.theta.shape[0], stim_len, -1))
-            x = np.squeeze(x.swapaxes(1, 0))
+            x = self.theta[:, start:stop]
             start = stop
 
+            # Reshape to (stimulus, source, lag)
+            x = x.reshape((self.theta.shape[0], stim_len, -1)).swapaxes(0, 1)
             x = np.dot(x, basis.T) / self.forward.lead_field_scaling
-            time = UTS(tstart, design.tstep, x.shape[-1])
-            dims = (dim, *source_dims, time) if dim else (*source_dims, time)
-            h.append(NDVar(x.reshape(*(len(d) for d in dims)), dims, name=name))
+
+            # Package in NDVar
+            lag_dim = UTS(tstart, design.tstep, x.shape[-1])
+            dims = (dim, *source_dims, lag_dim) if dim else (*source_dims, lag_dim)
+            h.append(NDVar(x.reshape([len(d) for d in dims]), dims, name=name))
 
         if design.stim_is_single:
             return h[0]

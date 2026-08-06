@@ -1,9 +1,7 @@
 """Tests for low-level stimulus-to-covariate preparation in the NCRF stack."""
-
-from dataclasses import dataclass, replace
-
 # Author: Proloy Das <email:proloyd94@gmail.com>
 # License: BSD (3-clause)
+from dataclasses import dataclass, replace
 from unittest.mock import MagicMock, Mock
 
 import numpy as np
@@ -344,6 +342,28 @@ def test_h_scaled_matches_unscaled_fit():
     assert unscaled_model.h_scaled is unscaled_model.h
     for expected, actual in zip(unscaled_model.h, model.h_scaled):
         np.testing.assert_allclose(actual.x, expected.x)
+
+
+@pytest.mark.parametrize('tstop, n_atoms', [(0.02, 1), (0.05, 4)])
+def test_h_with_narrow_basis(tstop, n_atoms):
+    """A predictor with a single basis function still expands into a full TRF."""
+    rng = np.random.RandomState(0)
+    time = UTS(0, 0.01, 200)
+    meg = [NDVar(rng.normal(size=(3, 200)), (SENSOR, time))]
+    bands = Categorial('band', ['low', 'high'])
+    n_lags = int(round(tstop / 0.01)) + 1
+    for stim, dimnames, shape in [
+        (NDVar(rng.normal(size=200), (time,), name='x'), ('source', 'time'), (4, n_lags)),
+        (NDVar(rng.normal(size=(2, 200)), (bands, time), name='x'), ('band', 'source', 'time'), (2, 4, n_lags)),
+    ]:
+        data = RegressionData.from_data(meg, [[stim]], 0, tstop, scale=None, stim_is_single=True)
+        assert data.design.basis[0].shape[1] == n_atoms
+        model = _model(data.design, data.design.n_coefficients)
+
+        h = model.h
+
+        assert h.dimnames == dimnames
+        assert h.shape == shape
 
 
 def test_gaussian_basis():

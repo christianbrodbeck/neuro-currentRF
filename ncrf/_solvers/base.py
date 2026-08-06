@@ -47,8 +47,8 @@ class SolverFit:
     theta: FloatArray
 
     def __repr__(self) -> str:
-        n_components, n_basis = self.theta.shape
-        return f"<{type(self).__name__}: {_count_repr(n_components, 'source component')}, {_count_repr(n_basis, 'basis coefficient')}>"
+        n_components, n_atoms = self.theta.shape
+        return f"<{type(self).__name__}: {_count_repr(n_components, 'source component')}, {_count_repr(n_atoms, 'basis coefficient')}>"
 
     def score(
             self,

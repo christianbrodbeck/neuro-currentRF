@@ -193,8 +193,8 @@ class _ChampLassoState:
         initialized = self.theta is not None
         details = f'{solver=!r}, {initialized=}'
         if initialized:
-            n_components, n_basis = self.theta.shape
-            details += f", {_count_repr(n_components, 'source component')}, {_count_repr(n_basis, 'basis coefficient')}"
+            n_components, n_atoms = self.theta.shape
+            details += f", {_count_repr(n_components, 'source component')}, {_count_repr(n_atoms, 'basis coefficient')}"
         return f'<{type(self).__name__}: {details}>'
 
     def _initialize(self, data: RegressionData) -> None:
@@ -425,8 +425,8 @@ class ChampLassoFit(SolverFit):
     sigma_b: list[FloatArray]
 
     def __repr__(self) -> str:
-        n_components, n_basis = self.theta.shape
-        return f"<{type(self).__name__}: {_count_repr(n_components, 'source component')}, {_count_repr(n_basis, 'basis coefficient')}, {_count_repr(self.history.n_iterations, 'iteration')}, {_count_repr(len(self.sigma_b), 'segment')}>"
+        n_components, n_atoms = self.theta.shape
+        return f"<{type(self).__name__}: {_count_repr(n_components, 'source component')}, {_count_repr(n_atoms, 'basis coefficient')}, {_count_repr(self.history.n_iterations, 'iteration')}, {_count_repr(len(self.sigma_b), 'segment')}>"
 
     def score(
             self,
