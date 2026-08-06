@@ -77,7 +77,8 @@ Attributes of the old fitted model map onto the fit report as follows:
 ``model.voxelwise_explained_variance``        ``result.voxelwise_explained_variance``
 ``model.Gamma``, ``model.Sigma_b``            ``result.solver_fit.gamma``, ``.sigma_b``
 ``model.err``, ``model.objective_vals``       ``result.solver_fit.history.residual``, ``.objective``
-``model.cv_info()``, ``model.cv_mu()``        ``result.cv_info()``, ``result.cv_mu()``
+``model.cv_info()``                           ``result.cv_info()``
+``model.cv_mu()``                             ``result.solver.mu``
 ``model.tstart``/``tstep``/``tstop``          ``result.model.design.tstart``/``tstep``/``tstop``
 ``model.basis_std``                           ``result.model.design.basis_std``
 ``model.stim_baseline``/``stim_scaling``      ``result.model.design.stim_baseline``/``stim_scaling``

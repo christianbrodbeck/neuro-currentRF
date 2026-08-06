@@ -417,7 +417,8 @@ class NCRFFit:
     Notes
     -----
     Cross-validation scores are retained when the solver's search cross-validates,
-    and are exposed through :meth:`cv_info` and :meth:`cv_mu`.
+    and are summarized by :meth:`cv_info`. The configuration the search settled on
+    is :attr:`solver` itself (for ChampLasso, ``solver.mu``).
     """
 
     def __init__(
@@ -446,27 +447,6 @@ class NCRFFit:
 
     def cv_info(self) -> fmtxt.Table:
         """Summarize stored cross-validation scores in a table."""
-        return self.solver.cv_table(self._require_cv_results())
-
-    def cv_mu(self, criterion: str = 'cross-fit') -> float:
-        """Retrieve best mu based on cross-validation (:class:`ChampLasso` only)
-
-        Parameters
-        ----------
-        criterion
-            Criterion for best fit. Possible values:
-
-            - ``'cross-fit'``: The smallest cross-fit value (default)
-            - ``'l2'``: The smallest l2 error
-            - ``'l2/mu'``: The local minimum in the l2 error with the largest mu, i.e.
-              the most regularized one (and hence the smallest TRF); falls back to the
-              smallest l2 error when the l2 error has no local minimum
-        """
-        from ._solvers.champ_lasso import select_by_criterion
-
-        return select_by_criterion(self._require_cv_results(), criterion).mu
-
-    def _require_cv_results(self) -> list[CVResult]:
         if not self._cv_results:
             raise ValueError("No cross-validation results; use a solver that searches over several configurations, such as ChampLasso(mu='auto').")
-        return self._cv_results
+        return self.solver.cv_table(self._cv_results)
