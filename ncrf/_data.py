@@ -98,7 +98,9 @@ def _assert_varying(
     """
     constant = []
     for name, trials in zip(design.stim_names, by_predictor):
-        arrays = [np.atleast_2d(t.x) for t in trials]  # (n_channels, n_times) per segment
+        # (n_channels, n_times) per segment; ``.x`` is in the NDVar's own dimension
+        # order, so ask for the data with time last rather than reducing over it blindly
+        arrays = [np.atleast_2d(t.get_data(t.get_dimnames(last='time'))) for t in trials]
         lo = np.min([x.min(1) for x in arrays], axis=0)
         hi = np.max([x.max(1) for x in arrays], axis=0)
         constant.extend(name if len(lo) == 1 else f'{name}[{i}]' for i in np.flatnonzero(lo == hi))
