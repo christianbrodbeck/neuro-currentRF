@@ -450,7 +450,9 @@ def select_by_criterion(cv_results: Sequence[CVResult], criterion: str = 'cross-
 
         - ``'cross-fit'``: The smallest cross-fit value (default)
         - ``'l2'``: The smallest l2 error
-        - ``'l2/mu'``: The local minimum in the l2 error with smallest trf (largest mu)
+        - ``'l2/mu'``: The local minimum in the l2 error with the largest mu, i.e.
+          the most regularized one (and hence the smallest TRF); falls back to the
+          smallest l2 error when the l2 error has no local minimum
     """
     if criterion == 'cross-fit':
         return min(cv_results, key=lambda result: result.scores['cross_fit']).solver
