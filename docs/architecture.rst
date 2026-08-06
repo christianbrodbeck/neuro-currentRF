@@ -59,7 +59,7 @@ Data and design
 :class:`~ncrf.RegressionData` contains numeric sensor arrays and lagged stimulus
 covariates projected into a Gaussian basis. Its design metadata records the TRF
 lags, basis, predictor dimensions and names, and the normalization the covariates
-carry (``center`` and ``scale``, applied by
+carry (``stim_baseline`` and ``stim_scaling``, applied by
 :meth:`~ncrf.RegressionData.normalize`). The same compact metadata is stored on
 the fitted model, so that ``NCRF.h`` can reconstruct labeled source-space TRFs
 without retaining the training dataset, and so that the model can check that new
