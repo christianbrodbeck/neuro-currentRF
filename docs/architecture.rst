@@ -140,5 +140,7 @@ TRF settings, and apply the training-data normalization to it (see
     predictions = result.model.predict(test_data)
     scores = result.model.evaluate(test_data)
 
-Predictions and metrics are computed in whitened sensor space. Calling
+:meth:`ncrf.NCRF.predict` returns predictions in the units of the M/EEG data
+(pass ``whitened=True`` for the space the model is fit in), whereas metrics are
+computed in whitened sensor space (see :doc:`guide`). Calling
 :meth:`ncrf.NCRF.evaluate` with several metrics predicts the dataset only once.
