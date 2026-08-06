@@ -307,7 +307,15 @@ class NCRFEstimator:
             Fixed solver configuration.
         verbose
             Print intermediate values of the cost functions.
+
+        Raises
+        ------
+        ValueError
+            If ``data`` is not whitened. The solver assumes isotropic noise, so
+            fitting raw data would silently produce wrong coefficients.
         """
+        if not data.is_whitened:
+            raise ValueError("data is not whitened; use NCRFEstimator.fit(), which whitens the data, or whiten it with self.forward.whiten(data)")
         solver_fit = solver.solve(self.forward, data, verbose=verbose)
         model = NCRF(
             forward=self.forward,

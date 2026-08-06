@@ -25,7 +25,7 @@ def test_fit_model():
     solver = Mock()
     solver_fit = SolverFit(np.empty((2, 3)))
     solver.solve.return_value = solver_fit
-    data = Mock(design=object())
+    data = Mock(design=object(), is_whitened=True)
 
     model, returned_fit = estimator.fit_model(data, solver, True)
 
@@ -34,6 +34,11 @@ def test_fit_model():
     assert model.design is data.design
     assert returned_fit is solver_fit
     solver.solve.assert_called_once_with(estimator.forward, data, verbose=True)
+
+    # the solver assumes isotropic noise, so raw data must not reach it
+    data.is_whitened = False
+    with pytest.raises(ValueError, match="data is not whitened"):
+        estimator.fit_model(data, solver)
 
 
 @dataclass(frozen=True)
