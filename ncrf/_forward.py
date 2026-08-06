@@ -2,16 +2,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from eelbrain import NDVar, Sensor, SourceSpace, Space, VolumeSourceSpace
 import numpy as np
 from scipy import linalg
 
-from ._data import RegressionData
 from ._linalg import _inv_sqrtm
 from ._repr import _forward_summary
 from ._typing import FloatArray
+
+if TYPE_CHECKING:
+    from ._data import RegressionData
 
 
 @dataclass(eq=False, repr=False)

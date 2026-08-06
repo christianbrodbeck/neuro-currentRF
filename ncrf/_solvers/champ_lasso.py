@@ -24,8 +24,6 @@ from tqdm import tqdm
 
 from .._crossvalidation import crossvalidate
 from .._fastac import Fasta
-from .._data import RegressionData
-from .._forward import ForwardModel
 from .._initialization import mne_initialization
 from .._linalg import _inv_sqrtm, _R_tol, compute_gamma
 from .._penalties import g, g_group, proxg_group_opt, shrink
@@ -35,6 +33,8 @@ from .base import Solver, SolverFit
 
 if TYPE_CHECKING:
     from .._crossvalidation import CrossValidation, CVResult
+    from .._data import RegressionData
+    from .._forward import ForwardModel
     from .._model import NCRFEstimator
 
 #: Per-iteration quantities :class:`ChampLasso` can record, in :class:`ChampLassoHistory`.
@@ -165,6 +165,10 @@ def _evaluate_objective(
     for key, (meg, covariate) in enumerate(data):
         y = meg - np.dot(np.dot(forward.whitened_lead_field, theta), covariate.T)
         Cb = np.dot(y, y.T)  # empirical data covariance
+        # Any factor of Cb will do: yhat enters both here and in _solve() only
+        # through yhat @ yhat.T. Cholesky is the cheaper one for the single use
+        # here, whereas _solve() always takes the rank-revealing factor, whose
+        # fewer columns pay off across its per-source iterations.
         try:
             yhat = linalg.cholesky(Cb, lower=True)
         except np.linalg.LinAlgError:
