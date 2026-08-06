@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from ncrf import ChampLasso, fit_ncrf, NCRF
+from ncrf._solvers.champ_lasso import ChampLassoHistory
 from ncrf.tests.fetch import load
 
 from eelbrain import Categorial, concatenate
@@ -45,6 +46,22 @@ def test_champ_lasso_auto_candidates(monkeypatch):
     )
 
     assert ChampLasso().candidates(None, None) == expected
+
+
+@pytest.mark.parametrize('store', ['theta', ('theta', 'bogus')])
+def test_champ_lasso_rejects_invalid_store(store):
+    """A misspelled quantity has to be an error rather than silently storing nothing."""
+    with pytest.raises(ValueError, match='store='):
+        ChampLasso(mu=0.1, store=store).solve(None, None)
+
+
+def test_history_rejects_unknown_quantity():
+    history = ChampLassoHistory(frozenset({'residual'}))
+
+    history.record(residual=0.5, theta=None)
+    assert history.residual == [0.5]
+    with pytest.raises(ValueError, match='name=.residuals.'):
+        history.record(residuals=0.5)
 
 
 @pytest.mark.slow
@@ -85,7 +102,7 @@ def test_ncrf():
     assert_dataobj_equal(model_2.h, result.model.h)
 
     # test Gaussian basis standard deviation; also opt-in trajectory storage, which is configured on the solver
-    solver = ChampLasso(mu=0.0019444, n_iter=1, n_iterc=1, n_iterf=1, store_theta=True, store_gamma=True, store_sigma_b=True)
+    solver = ChampLasso(mu=0.0019444, n_iter=1, n_iterc=1, n_iterf=1, store=('theta', 'gamma', 'sigma_b'))
     result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='spectral', solver=solver, basis_std=0.050)
     assert result.solver is solver
     assert set(result.scores) == {'explained_variance', 'l2_error', 'cross_fit', 'weighted_l2_error'}

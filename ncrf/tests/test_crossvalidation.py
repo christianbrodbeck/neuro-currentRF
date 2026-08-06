@@ -76,11 +76,7 @@ def test_score_candidate_uses_estimator_fit_primitive(monkeypatch):
     fold_solver = estimator.fit_model.call_args.args[1]
     assert fold_solver.mu == 0.1
     assert fold_solver.tol == solver.tol
-    assert not fold_solver.store_objective
-    assert not fold_solver.store_residual
-    assert not fold_solver.store_theta
-    assert not fold_solver.store_gamma
-    assert not fold_solver.store_sigma_b
+    assert not fold_solver.store
     estimator.fit_model.assert_called_once_with(train_data, fold_solver)
     model.evaluate.assert_called_once_with(test_data, accept_whitening=True)
     solver_fit.score.assert_called_once_with(estimator.forward, test_data)

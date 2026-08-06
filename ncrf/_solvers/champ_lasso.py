@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from .._model import NCRFEstimator
 
 #: Per-iteration quantities :class:`ChampLasso` can record, in :class:`ChampLassoHistory`.
-#: Each has a matching ``store_*`` flag on :class:`ChampLasso`.
+#: Names from this tuple are what :attr:`ChampLasso.store` selects from.
 QUANTITIES = ('objective', 'residual', 'theta', 'gamma', 'sigma_b')
 
 
@@ -59,8 +59,7 @@ class ChampLassoHistory:
     Attributes
     ----------
     store
-        Which of :data:`QUANTITIES` to retain, set from the matching
-        :class:`ChampLasso` ``store_*`` flags.
+        Which of :data:`QUANTITIES` to retain, taken from :attr:`ChampLasso.store`.
     objective
         Objective value after each covariance update.
     residual
@@ -97,8 +96,16 @@ class ChampLassoHistory:
             Values to record, keyed by their name in :data:`QUANTITIES`. A
             ``None`` value is skipped, so a caller that does not have every
             quantity at hand can pass what it has.
+
+        Raises
+        ------
+        ValueError
+            If a name is not one of :data:`QUANTITIES`, which would otherwise be
+            silently dropped.
         """
         for name, value in quantities.items():
+            if name not in QUANTITIES:
+                raise ValueError(f"{name=}: not one of {QUANTITIES}")
             if name in self.store and value is not None:
                 # deepcopy: gamma and sigma_b are lists of arrays the solver
                 # keeps updating in place
@@ -502,18 +509,11 @@ class ChampLasso(Solver):
     use_es
         Refine the cross-validated ``mu`` with the estimation stability criterion
         :cite:`limEstimationStabilityCrossValidation2016` (default ``False``).
-    store_theta
-        Store the ``theta`` estimate after each outer iteration in the solver
-        history (default ``False``).
-    store_gamma
-        Store the source covariances after each outer iteration (default ``False``).
-    store_sigma_b
-        Store the data covariances after each outer iteration (default ``False``).
-    store_objective
-        Store the objective after each outer iteration (default ``True``).
-    store_residual
-        Store the relative coefficient change after each outer iteration
-        (default ``True``).
+    store
+        Which per-iteration quantities to keep in :attr:`ChampLassoFit.history`;
+        any of :data:`QUANTITIES`. The two scalars (``'objective'`` and
+        ``'residual'``, the default) are cheap; ``'theta'``, ``'gamma'`` and
+        ``'sigma_b'`` retain the full trajectory and are correspondingly large.
     """
 
     mu: MuArg = 'auto'
@@ -522,15 +522,11 @@ class ChampLasso(Solver):
     n_iterf: int = 100
     tol: float = 1e-5
     use_es: bool = False
-    store_objective: bool = True
-    store_residual: bool = True
-    store_theta: bool = False
-    store_gamma: bool = False
-    store_sigma_b: bool = False
+    store: Sequence[str] = ('objective', 'residual')
 
     def without_history(self) -> ChampLasso:
         """Disable all per-iteration storage for cross-validation folds."""
-        return replace(self, **{f'store_{name}': False for name in QUANTITIES})
+        return replace(self, store=())
 
     def search(
             self,
@@ -652,7 +648,10 @@ class ChampLasso(Solver):
         """Estimate NCRF weights for one prepared, whitened dataset."""
         if not _is_number(self.mu):
             raise ValueError("ChampLasso.solve() requires a fixed numeric mu; use NCRFEstimator.fit() to resolve a grid or mu='auto'")
-        history = ChampLassoHistory(frozenset(name for name in QUANTITIES if getattr(self, f'store_{name}')))
+        # a bare string would be iterated character by character
+        if isinstance(self.store, str) or not frozenset(self.store).issubset(QUANTITIES):
+            raise ValueError(f"store={self.store!r}: expected a sequence with any of {QUANTITIES}")
+        history = ChampLassoHistory(frozenset(self.store))
         state = _ChampLassoState(self, forward)
         state.run(data, history, verbose)
         return ChampLassoFit(
