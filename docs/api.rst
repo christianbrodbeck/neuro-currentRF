@@ -24,6 +24,7 @@ Fitting pipeline
     NCRFEstimator
     CrossValidation
     CVResult
+    crossvalidate
 
 Models and fits
 ---------------

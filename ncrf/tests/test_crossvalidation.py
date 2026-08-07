@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from ncrf import ChampLasso, CrossValidation
+from ncrf import ChampLasso, CrossValidation, crossvalidate
 from ncrf import _crossvalidation as cv
 from ncrf._solvers import champ_lasso
 
@@ -134,7 +134,7 @@ def test_crossvalidate_progress(monkeypatch):
     )
     candidates = tuple(ChampLasso(mu=mu) for mu in (0.1, 0.2, 0.3))
 
-    results = cv.crossvalidate(
+    results = crossvalidate(
         object(), object(), candidates, CrossValidation(n_splits=2, n_workers=0),
     )
 
@@ -157,7 +157,7 @@ def test_crossvalidate_propagates_worker_error(monkeypatch):
     candidates = tuple(ChampLasso(mu=mu) for mu in (0.1, 0.2))
 
     with pytest.raises(RuntimeError, match="worker failed"):
-        cv.crossvalidate(
+        crossvalidate(
             object(), object(), candidates, CrossValidation(n_splits=2, n_workers=2),
         )
 
@@ -221,3 +221,4 @@ def test_search_es_is_independent_of_result_order(monkeypatch):
 
     assert solver.mu == 0.3
     assert returned_results == results
+    assert '0.30000*' in str(solver.cv_table(returned_results))

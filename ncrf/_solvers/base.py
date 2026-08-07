@@ -103,7 +103,7 @@ class Solver(ABC):
             Prepared, whitened data the fit will use.
         cv
             Cross-validation configuration to score candidates with. Pass it to
-            ``ncrf._crossvalidation.crossvalidate`` as often as the search needs;
+            :func:`ncrf.crossvalidate` as often as the search needs;
             each call fits every candidate on every fold.
 
         Returns
