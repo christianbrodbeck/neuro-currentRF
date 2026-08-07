@@ -323,6 +323,8 @@ class _ChampLassoState:
         logger = logging.getLogger(__name__)
         mu = float(self.solver.mu)
         self._initialize(data)
+        if mu == 0.0:
+            self._solve(data, self.theta, n_iterc=30)
 
         if self.forward.space:
             def g_funct(x): return g_group(x, mu)
