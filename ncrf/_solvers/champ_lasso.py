@@ -612,7 +612,10 @@ class ChampLasso(Solver):
         table.midrule()
         fmt = '%.5f'
         for result in results:
-            table.cell(fmtxt.stat(result.solver.mu, fmt=fmt))
+            text = fmtxt.stat(result.solver.mu, fmt=fmt)
+            if result.solver == self:
+                text += '*'
+            table.cell(text)
             table.cell(fmtxt.stat(result.scores['cross_fit'], fmt, 1 if result.solver.mu == best_mu['cross-fit'] else 0, 1))
             table.cell(fmtxt.stat(result.scores['l2_error'], fmt, 1 if result.solver.mu == best_mu['l2/mu'] else 0, 1))
             table.cell(fmtxt.stat(result.scores['weighted_l2_error'], fmt=fmt))
