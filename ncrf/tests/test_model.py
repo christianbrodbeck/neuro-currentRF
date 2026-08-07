@@ -214,6 +214,7 @@ def test_rejects_constant_predictor(scale):
     meg = [NDVar(rng.normal(size=(3, 200)), (SENSOR, time))]
     varying = NDVar(rng.normal(size=200), (time,), name='varying')
     constant = NDVar(np.full(200, 2.5), (time,), name='constant')
+    unnamed = NDVar(np.full(200, 2.5), (time,))
     # a single constant channel of a multi-channel predictor is enough
     x = rng.normal(size=(2, 200))
     x[1] = 7.
@@ -221,6 +222,8 @@ def test_rejects_constant_predictor(scale):
 
     with pytest.raises(ValueError, match="constant: predictor is constant over time"):
         RegressionData.from_data(meg, [[varying, constant]], 0, 0.05, scale=scale)
+    with pytest.raises(ValueError, match="<unnamed>: predictor is constant over time"):
+        RegressionData.from_data(meg, [[varying, unnamed]], 0, 0.05, scale=scale)
     with pytest.raises(ValueError, match=r"bands\[1\]: predictor is constant over time"):
         RegressionData.from_data(meg, [[varying, bands]], 0, 0.05, scale=scale)
 

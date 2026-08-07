@@ -102,7 +102,11 @@ def _assert_varying(
         arrays = [np.atleast_2d(t.get_data(t.get_dimnames(last='time'))) for t in trials]
         lo = np.min([x.min(1) for x in arrays], axis=0)
         hi = np.max([x.max(1) for x in arrays], axis=0)
-        constant.extend(name if len(lo) == 1 else f'{name}[{i}]' for i in np.flatnonzero(lo == hi))
+        for i in np.flatnonzero(lo == hi):
+            desc = name or '<unnamed>'
+            if len(lo) > 1:
+                desc = f'{desc}[{i}]'
+            constant.append(desc)
     if constant:
         raise ValueError(f"{', '.join(constant)}: predictor is constant over time, so it has no variation to scale by; drop it, or prepare the data with scale=None")
 
