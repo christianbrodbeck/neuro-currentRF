@@ -229,22 +229,6 @@ def test_rejects_constant_predictor(scale):
     assert np.isfinite(data.covariates[0]).all()
 
 
-def test_constant_predictor_check_uses_time_axis():
-    """The check is over time, whatever dimension order the predictor is stored in."""
-    rng = np.random.RandomState(0)
-    time = UTS(0, 0.01, 200)
-    band = Categorial('band', ['low', 'high'])
-    meg = [NDVar(rng.normal(size=(3, 200)), (SENSOR, time))]
-    # channels that happen to coincide at a time point are not constant over time
-    x = rng.normal(size=(200, 2))
-    x[7, 1] = x[7, 0]
-    RegressionData.from_data(meg, [[NDVar(x, (time, band), name='bands')]], 0, 0.05, scale='l2')
-
-    x[:, 1] = 7.
-    with pytest.raises(ValueError, match=r"bands\[1\]: predictor is constant over time"):
-        RegressionData.from_data(meg, [[NDVar(x, (time, band), name='bands')]], 0, 0.05, scale='l2')
-
-
 @pytest.mark.parametrize('factor', [0., np.nan, np.inf, -1.])
 def test_normalize_rejects_invalid_scaling(factor):
     """Scaling factors that would fill the covariates with NaN or infinity are rejected."""

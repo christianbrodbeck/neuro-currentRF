@@ -127,8 +127,8 @@ class Solver(ABC):
     def cv_table(self, cv_results: Sequence[CVResult]) -> fmtxt.Table:
         """Summarize cross-validation scores in a table.
 
-        Call this on the configuration :meth:`search` selected; the table marks it
-        among the candidates it was chosen from.
+        Call this on the solver that was selected by :meth:`search`;
+        the table marks it among the candidates it was chosen from.
 
         Parameters
         ----------

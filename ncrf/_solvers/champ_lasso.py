@@ -593,8 +593,9 @@ class ChampLasso(Solver):
     def cv_table(self, cv_results: Sequence[CVResult]) -> fmtxt.Table:
         """Summarize cross-validation scores by ``mu``.
 
-        Call this on the configuration :meth:`search` selected; the table warns when
-        its ``mu`` is at the bottom of the grid it was chosen from.
+        Call this on the solver that was selected by :meth:`search`;
+        the table marks it among the candidates it was chosen from.
+        The table also warns when its ``mu`` is at the bottom of the grid it was chosen from.
 
         Parameters
         ----------
