@@ -24,7 +24,6 @@ from tqdm import tqdm
 
 from .._crossvalidation import crossvalidate
 from .._fastac import Fasta
-from .._initialization import mne_initialization
 from .._linalg import _inv_sqrtm, _R_tol, compute_gamma
 from .._penalties import g, g_group, proxg_group_opt, shrink
 from .._repr import _count_repr
@@ -215,7 +214,7 @@ class _ChampLassoState:
         self._init_sigma_b = []
         for y, _ in data:
             t = y.shape[1]
-            gamma, data_cov = mne_initialization(y * (t ** 0.5), self.forward.whitened_lead_field)
+            gamma, data_cov = self.forward.mne_initializer(y * (t ** 0.5))
             gamma = np.reshape(gamma, (-1, self.forward.dc))
             self._init_gamma.append([np.diag(g) for g in gamma])
             self._init_sigma_b.append(self.forward.whitened_noise_covariance + data_cov)

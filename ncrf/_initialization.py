@@ -1,6 +1,7 @@
 """Empirical-Bayes / MNE-style initialization for the NCRF source covariance."""
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import logging
 
 import numpy as np
@@ -9,7 +10,6 @@ from scipy import linalg
 from ._typing import FloatArray
 
 
-# Functions used for initialize \Gamma
 def find_mu(
         s: FloatArray,
         y: FloatArray,
@@ -44,67 +44,73 @@ def find_mu(
     return mu
 
 
-def wls(
-        y: FloatArray,
-        l: FloatArray,
-        w: FloatArray,
-        return_ecov: bool = False,
-) -> tuple[FloatArray, float] | tuple[FloatArray, float, FloatArray]:
-    """Solve the weighted least-squares problem used for NCRF initialization."""
-    w = np.squeeze(w)
-    if w.ndim == 1:
-        lw = l * w[None, :]
-    else:
-        lw = l @ w
-    u, s, vh = linalg.svd(lw, full_matrices=False)
-    yw = u.T @ y
-    mu = find_mu(s, yw, eta=1)
-    if mu:
-        gamma = s / (s ** 2 + 1 / mu)
-    else:
-        gamma = 1 / s
+@dataclass(eq=False, repr=False)
+class MNEInitializer:
+    """MNE-style Gamma and data-covariance initializer for one lead field.
 
-    if w.ndim == 1:
-        im = w[:, None] * vh.T
-    else:
-        im = w @ vh.T
+    The depth weighting and the SVD of the depth-weighted lead field depend only
+    on the lead field, so one instance initializes any number of datasets --
+    cross-validation folds, regularization candidates -- without repeating them.
 
-    im = im * gamma[None, :]
+    Parameters
+    ----------
+    lead_field
+        Forward solution, shape ``(n_sensors, n_sources)``.
+    use_depth_prior
+        Weight sources by depth, compensating for the bias towards superficial
+        sources.
+    exp
+        Exponent of the depth weighting.
+    """
 
-    if return_ecov is True:
-        ecov = np.eye(w.shape[0]) - vh.T @ ((gamma * s)[:, None] * vh)
-        ecov *= mu
-        if w.ndim == 1:
-            ecov *= w[:, None]
-            ecov *= w[None, :]
+    lead_field: FloatArray
+    use_depth_prior: bool = True
+    exp: float = 0.8
+    #: Depth weight of each source.
+    w: FloatArray = field(init=False)
+    #: SVD of the depth-weighted lead field.
+    u: FloatArray = field(init=False)
+    s: FloatArray = field(init=False)
+    vh: FloatArray = field(init=False)
+
+    def __post_init__(self) -> None:
+        l = self.lead_field
+        if self.use_depth_prior:
+            dw = 1.0 / (l ** 2).sum(axis=0)
+            limit = dw.min() * 10.0
+            self.w = np.minimum(dw / limit, 1) ** self.exp
         else:
-            ecov = ecov @ w.T
-            ecov = w @ ecov
-        return im @ yw, mu, ecov
+            self.w = np.ones(l.shape[1])
+        self.u, self.s, self.vh = linalg.svd(l * self.w[None, :], full_matrices=False)
 
-    return im @ yw, mu
+    def __call__(self, y: FloatArray) -> tuple[FloatArray, FloatArray]:
+        """Initial source variances and sensor covariance for ``y``.
 
+        Parameters
+        ----------
+        y
+            Sensor measurement of one data segment, shape
+            ``(n_sensors, n_times)``, whitened by the same filter as
+            :attr:`lead_field`. ``Gamma`` averages over the ``n_times`` samples,
+            so data that was normalized by ``sqrt(n_times)`` has to be rescaled
+            before it is passed in.
 
-def mne_initialization(
-        y: FloatArray,
-        l: FloatArray,
-        use_depth_prior: bool = True,
-        exp: float = 0.8,
-) -> tuple[FloatArray, FloatArray]:
-    """Build the initial Gamma and sensor covariance from an MNE-style estimate."""
-    N, M = l.shape
-    T = y.shape[1]
-
-    if use_depth_prior:
-        dw = 1.0 / (l ** 2).sum(axis=0)
-        limit = dw.min() * 10.0
-        depth_weighting = (np.minimum(dw / limit, 1)) ** exp
-    else:
-        depth_weighting = np.ones(M)
-
-    w = np.ones(M)
-    w *= depth_weighting
-    inv, mu, ecov = wls(y, l, w, return_ecov=True)
-    Gamma = np.diag((inv @ inv.T) / T + ecov)
-    data_cov = l * Gamma[None, :] @ l.T
-    return Gamma, data_cov
+        Returns
+        -------
+        Gamma
+            Variance of each source, from the weighted least-squares estimate and
+            its posterior covariance.
+        data_cov
+            Sensor covariance implied by ``Gamma``.
+        """
+        w, s, vh = self.w, self.s, self.vh
+        yw = self.u.T @ y
+        mu = find_mu(s, yw, eta=1)
+        gamma = s / (s ** 2 + 1 / mu) if mu else 1 / s
+        inv = ((w[:, None] * vh.T) * gamma[None, :]) @ yw
+        # Gamma is the diagonal of ``inv @ inv.T / n_times + ecov``, with the posterior covariance
+        #     ecov = mu * w[:, None] * (eye(n_sources) - vh.T @ ((gamma * s)[:, None] * vh)) * w[None, :]
+        # Both terms are (n_sources, n_sources), so here their diagonals are computed directly rather than by forming the entire matrices: diag(A @ A.T) sums the squared rows of A, and the diagonal of ``vh.T @ diag(d) @ vh`` sums the squared rows of vh weighted by d.
+        ecov_diagonal = mu * w ** 2 * (1 - ((gamma * s)[:, None] * vh ** 2).sum(0))
+        Gamma = (inv ** 2).sum(1) / y.shape[1] + ecov_diagonal
+        return Gamma, (self.lead_field * Gamma[None, :]) @ self.lead_field.T

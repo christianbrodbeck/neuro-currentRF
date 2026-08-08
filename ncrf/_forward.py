@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import Any, TYPE_CHECKING
 
 from eelbrain import NDVar, Sensor, SourceSpace, Space, VolumeSourceSpace
 import numpy as np
 from scipy import linalg
 
+from ._initialization import MNEInitializer
 from ._linalg import _inv_sqrtm
 from ._repr import _forward_summary
 from ._typing import FloatArray
@@ -76,6 +78,17 @@ class ForwardModel:
     def dc(self) -> int:
         """Number of orientation components per source."""
         return len(self.space) if self.space else 1
+
+    @cached_property
+    def mne_initializer(self) -> MNEInitializer:
+        """MNE-style initializer for :attr:`whitened_lead_field`.
+
+        Cached because its lead-field factorization is reused by every
+        cross-validation fold and solver candidate that shares this instance.
+        It is derived state, and hence excluded from pickling by
+        :meth:`__getstate__`.
+        """
+        return MNEInitializer(self.whitened_lead_field)
 
     def source_block(self, i: int) -> slice:
         """Column/row slice of source ``i``'s orientation components in stacked arrays."""
