@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from functools import cached_property
 from math import sqrt
+from typing import Any
 from collections.abc import Iterator, Sequence
 
 from eelbrain import NDVar, Sensor, UTS
@@ -426,6 +427,9 @@ class RegressionData:
         predictors = tuple(self.design.stim_names)
         whitened = self.is_whitened
         return f"<{type(self).__name__}: {_count_repr(n_segments, 'segment')}, {_count_repr(n_sensors, 'sensor')}, {_count_repr(n_samples, 'sample')}/segment, {_count_repr(n_covariates, 'covariate')}, {predictors=}, {whitened=}>"
+
+    def __getstate__(self) -> dict[str, Any]:
+        return {key: value for key, value in self.__dict__.items() if key not in ('bbt', 'bE', 'EtE')}
 
     @cached_property
     def bbt(self) -> list[FloatArray]:
