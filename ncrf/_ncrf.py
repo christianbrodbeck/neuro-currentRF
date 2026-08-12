@@ -160,7 +160,7 @@ def fit_ncrf(
         library's configured default.
     use_ES
         Use estimation stability criterion :cite:`limEstimationStabilityCrossValidation2016` to
-        choose the best ``mu``. (False, by default)
+        choose the best ``mu``. (``False`` by default, see :class:`~ncrf.ChampLasso`).
     basis_std
         Standard deviation of the Gaussian basis atoms in seconds
         (default ``0.0085``, approximately 20 ms FWHM).

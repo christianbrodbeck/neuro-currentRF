@@ -512,8 +512,10 @@ class ChampLasso(Solver):
         Tolerance factor deciding stopping criterion for the overall algorithm.
         Iteration stops when ``norm(trf_new - trf_old)/norm(trf_old) < tol``.
     use_es
-        Refine the cross-validated ``mu`` with the estimation stability criterion
-        :cite:`limEstimationStabilityCrossValidation2016` (default ``False``).
+        Refine the cross-validated ``mu`` with the estimation stability (ES) criterion
+        :cite:`limEstimationStabilityCrossValidation2016` (default ``False``): among
+        the candidates with ``mu`` equal or larger to the cross-fit winner, take the
+        first local minimum of the ``estimation_stability`` score.
     store
         Which per-iteration quantities to keep in :attr:`ChampLassoFit.history`;
         any of :data:`QUANTITIES`. The two scalars (``'objective'`` and
