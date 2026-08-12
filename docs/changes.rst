@@ -132,3 +132,13 @@ fitted model is applied to new data (see :doc:`guide`).
   change are not comparable for those fits.
 - The ``'spectral'`` norm is measured on centered covariates, so its value differs
   slightly from the post-normalization factor of earlier versions.
+
+The TRF basis
+"""""""""""""
+
+- ``nlevels``/``nlevel`` is renamed to ``basis_stride`` on :func:`~ncrf.fit_ncrf`
+  and :meth:`~ncrf.RegressionData.from_data`. The meaning is
+  unchanged: it is the spacing between neighboring Gabor atoms, in samples.
+- The value is recorded as :attr:`ncrf.TRFDesign.basis_stride`; it is ``None``
+  for a design constructed directly with a custom
+  :attr:`~ncrf.TRFDesign.basis`, which no single stride describes.

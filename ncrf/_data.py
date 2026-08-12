@@ -276,7 +276,7 @@ class RegressionData:
             stim: list[Sequence[NDVar]],
             tstart: float | Sequence[float],
             tstop: float | Sequence[float],
-            nlevel: int = 1,
+            basis_stride: int = 1,
             scale: ScaleArg = 'spectral',
             stim_is_single: bool = False,
             basis_std: float = 0.0085,
@@ -299,9 +299,10 @@ class RegressionData:
         tstop
             Stop of the TRF in seconds. A scalar applies to all predictors; a
             sequence specifies one stop time per predictor.
-        nlevel
-            Density of Gabor basis atoms. Bigger → less dense. ``nlevel > 2``
-            should be used with caution.
+        basis_stride
+            Spacing between neighboring Gabor basis atoms, in samples: with the
+            default of ``1`` the atoms are one sample apart, and larger values
+            make the basis sparser. ``basis_stride > 2`` should be used with caution.
         scale
             Normalization applied to the covariates. Each predictor's mean is
             subtracted, and each covariate channel is divided by one factor:
@@ -344,7 +345,7 @@ class RegressionData:
         first_time: UTS = meg[0].get_dim('time')
         tstep = first_time.tstep
         trial_length = len(first_time)
-        design = TRFDesign.from_stim(stim[0], tstep, tstart, tstop, nlevel, basis_std, stim_is_single)
+        design = TRFDesign.from_stim(stim[0], tstep, tstart, tstop, basis_stride, basis_std, stim_is_single)
 
         row_slice = None
         if not pad_stim:

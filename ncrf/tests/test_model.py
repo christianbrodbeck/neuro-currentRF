@@ -375,8 +375,8 @@ def test_h_with_narrow_basis(tstop, n_atoms):
 
 
 def test_gaussian_basis():
-    basis = gaussian_basis(5, np.linspace(0, 1, 11), 0.1)
-    shifted_basis = gaussian_basis(5, np.linspace(10, 11, 11), 0.1)
+    basis = gaussian_basis(4, np.linspace(0, 1, 11), 0.1)
+    shifted_basis = gaussian_basis(4, np.linspace(10, 11, 11), 0.1)
 
     assert basis.shape == (11, 4)
     np.testing.assert_allclose(basis, shifted_basis)

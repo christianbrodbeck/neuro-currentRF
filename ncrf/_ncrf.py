@@ -76,7 +76,7 @@ def fit_ncrf(
         noise: mne.Covariance | NDVar | np.ndarray,
         tstart: float | Sequence[float] = 0,
         tstop: float | Sequence[float] = 0.5,
-        nlevels: int = 1,
+        basis_stride: int = 1,
         n_iter: int = 10,
         n_iterc: int = 10,
         n_iterf: int = 100,
@@ -122,9 +122,10 @@ def fit_ncrf(
     tstop
         Stop of the TRF in seconds. A scalar applies to all predictors; a sequence
         specifies one stop time per predictor.
-    nlevels
-        Decides the density of Gabor atoms. Bigger nlevel -> less dense basis.
-        By default it is set to ``1``. ``nlevel > 2`` should be used with caution.
+    basis_stride
+        Spacing between neighboring Gabor atoms, in samples: with the default of
+        ``1`` the atoms are one sample apart, and larger values make the basis
+        sparser. ``basis_stride > 2`` should be used with caution.
     n_iter
         Number of outer iterations of the algorithm, by default set to 10.
     n_iterc
@@ -260,7 +261,7 @@ def fit_ncrf(
             stim_trials.append(stim_chunk)
 
     ds = RegressionData.from_data(
-        meg_trials, stim_trials, tstart, tstop, nlevels,
+        meg_trials, stim_trials, tstart, tstop, basis_stride,
         scale, stim_is_single, basis_std=basis_std, in_place=in_place,
     )
 

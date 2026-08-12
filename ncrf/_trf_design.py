@@ -79,6 +79,10 @@ class TRFDesign:
         Feature dimension for each predictor (``None`` for scalar predictors).
     stim_names
         Name of each predictor variable.
+    basis_stride
+        Spacing between neighboring basis atoms in samples, as passed to
+        :meth:`from_stim`. ``None`` when the design was constructed directly with
+        a custom :attr:`~ncrf.TRFDesign.basis`, since no single stride describes it then.
     stim_baseline, stim_scaling
         Centering and scaling applied to the covariates during data preparation,
         one value per expanded covariate channel, or ``None`` when that step was
@@ -99,6 +103,7 @@ class TRFDesign:
     stim_is_single: bool
     stim_dims: list[StimDimensions | None]
     stim_names: list[str]
+    basis_stride: int | None = None
     stim_baseline: FloatArray | None = None
     stim_scaling: FloatArray | None = None
     scale: ScaleArg = None
@@ -110,7 +115,7 @@ class TRFDesign:
             tstep: float,
             tstart: float | Sequence[float],
             tstop: float | Sequence[float],
-            nlevel: int = 1,
+            basis_stride: int = 1,
             basis_std: float = 0.0085,
             stim_is_single: bool = False,
     ) -> TRFDesign:
@@ -129,9 +134,10 @@ class TRFDesign:
         tstop
             Stop of the TRF in seconds. A scalar applies to all predictors; a
             sequence specifies one stop time per predictor.
-        nlevel
-            Density of Gabor basis atoms. Bigger → less dense. ``nlevel > 2``
-            should be used with caution.
+        basis_stride
+            Spacing between neighboring Gabor basis atoms, in samples: with the
+            default of ``1`` the atoms are one sample apart, and larger values
+            make the basis sparser. ``basis_stride > 2`` should be used with caution.
         basis_std
             Standard deviation of the Gaussian basis functions in seconds.
         stim_is_single
@@ -147,10 +153,18 @@ class TRFDesign:
         if len(tstart) != len(stim_dims) or len(tstop) != len(stim_dims):
             raise ValueError(f"{tstart=}, {tstop=}: need one value per predictor ({len(stim_dims)})")
 
-        basis = [gaussian_basis(int(round((fl - 1) / nlevel)), np.linspace(ts, te, fl), basis_std) for ts, te, fl in zip(tstart, tstop, filter_lengths(tstart, tstop, tstep))]
+        if basis_stride < 1:
+            raise ValueError(f"{basis_stride=}: need an integer >= 1")
+        basis = []
+        for ts, te, fl in zip(tstart, tstop, filter_lengths(tstart, tstop, tstep)):
+            n_atoms = int(round((fl - 1) / basis_stride)) - 1
+            if n_atoms < 1:
+                raise ValueError(f"{basis_stride=}: too coarse for the TRF from {ts} to {te} s ({fl} samples), which leaves no basis atoms")
+            basis.append(gaussian_basis(n_atoms, np.linspace(ts, te, fl), basis_std))
         return cls(
             basis=basis, tstart=tstart, tstep=tstep, tstop=tstop, basis_std=basis_std,
             stim_is_single=stim_is_single, stim_dims=stim_dims, stim_names=[x.name for x in stim],
+            basis_stride=basis_stride,
         )
 
     def __repr__(self) -> str:
@@ -284,4 +298,4 @@ class TRFDesign:
             if mine != theirs:
                 raise ValueError(f"incompatible design: {attr} is {theirs} instead of {mine}")
         if len(other.basis) != len(self.basis) or not all(np.array_equal(a, b) for a, b in zip(self.basis, other.basis)):
-            raise ValueError("incompatible design: different Gabor basis (check nlevel)")
+            raise ValueError("incompatible design: different Gabor basis (check basis_stride)")

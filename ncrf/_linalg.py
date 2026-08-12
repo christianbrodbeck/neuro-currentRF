@@ -29,7 +29,8 @@ def gaussian_basis(
     Parameters
     ----------
     n_atoms
-        number of atoms
+        Number of atoms; their centers are spaced evenly over ``lags``, excluding
+        its endpoints.
     lags
         One-dimensional lag times covered by the basis functions,
         shape ``(n_lags,)``.
@@ -40,16 +41,15 @@ def gaussian_basis(
     Returns
     -------
     ndarray
-        Array whose columns contain the basis atoms. Shape ``(n_lags, n_atoms)``, with
-        ``n_atoms = nlevel - 1``.
+        Array whose columns contain the basis atoms, shape ``(n_lags, n_atoms)``.
     """
     logger = logging.getLogger(__name__)
     logger.info(f'Using gaussian basis with {basis_std=}')
     lags = np.asarray(lags, dtype=np.float64)
     lag_start = lags[0]
     lag_stop = lags[-1]
-    lag_step = (lag_stop - lag_start) / n_atoms
-    centers = np.linspace(lag_start + lag_step, lag_stop - lag_step, num=n_atoms - 1)
+    lag_step = (lag_stop - lag_start) / (n_atoms + 1)
+    centers = np.linspace(lag_start + lag_step, lag_stop - lag_step, num=n_atoms)
     basis = np.exp(-((lags[:, None] - centers[None, :]) ** 2) / (2 * basis_std ** 2))
     return basis / basis.max()
 
