@@ -81,13 +81,7 @@ class ForwardModel:
 
     @cached_property
     def mne_initializer(self) -> MNEInitializer:
-        """MNE-style initializer for :attr:`whitened_lead_field`.
-
-        Cached because its lead-field factorization is reused by every
-        cross-validation fold and solver candidate that shares this instance.
-        It is derived state, and hence excluded from pickling by
-        :meth:`__getstate__`.
-        """
+        """MNE-style initializer for :attr:`~ncrf.ForwardModel.whitened_lead_field`."""
         return MNEInitializer(self.whitened_lead_field)
 
     def source_block(self, i: int) -> slice:

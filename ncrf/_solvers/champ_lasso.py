@@ -518,9 +518,10 @@ class ChampLasso(Solver):
         first local minimum of the ``estimation_stability`` score.
     store
         Which per-iteration quantities to keep in :attr:`ChampLassoFit.history`;
-        any of :data:`QUANTITIES`. The two scalars (``'objective'`` and
-        ``'residual'``, the default) are cheap; ``'theta'``, ``'gamma'`` and
-        ``'sigma_b'`` retain the full trajectory and are correspondingly large.
+        any of ``'objective'``, ``'residual'``, ``'theta'``, ``'gamma'`` or
+        ``'sigma_b'``. The two scalars (``'objective'`` and ``'residual'``, the
+        default) are cheap; the other three retain the full trajectory and are
+        correspondingly large.
     """
 
     mu: MuArg = 'auto'
