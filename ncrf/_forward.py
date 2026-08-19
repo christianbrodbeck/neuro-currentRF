@@ -1,21 +1,95 @@
 """Forward model and noise covariance with derived whitened quantities."""
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Any, TYPE_CHECKING
 
 from eelbrain import NDVar, Sensor, SourceSpace, Space, VolumeSourceSpace
+import mne
 import numpy as np
 from scipy import linalg
 
 from ._initialization import MNEInitializer
 from ._linalg import _inv_sqrtm
 from ._repr import _forward_summary
-from ._typing import FloatArray
+from ._typing import FloatArray, NoiseArg
 
 if TYPE_CHECKING:
     from ._data import RegressionData
+
+
+def _assert_sensors_equal(
+        names: Sequence[str],
+        reference: Sequence[str],
+        desc: str,
+        reference_desc: str,
+) -> None:
+    """Check that two channel lists are identical, including their order.
+
+    Sensor data is combined by channel position throughout, so anything but an
+    exact match silently attributes the data of one channel to another.
+
+    Parameters
+    ----------
+    names, reference
+        Channel lists to compare.
+    desc, reference_desc
+        What the two lists describe, for the error message.
+    hint
+        Why the channels have to match, appended to the error message.
+
+    Raises
+    ------
+    ValueError
+        If the two lists differ in channels or in their order.
+    """
+    names, reference = list(names), list(reference)
+    if names == reference:
+        return
+    only_names = [name for name in names if name not in set(reference)]
+    only_reference = [name for name in reference if name not in set(names)]
+    if only_names or only_reference:
+        difference = f"only in {desc}: {only_names or 'none'}; only in {reference_desc}: {only_reference or 'none'}"
+    else:
+        difference = f"same channels in a different order; {desc} starts with {names[:3]}, {reference_desc} with {reference[:3]}"
+    raise ValueError(f"{desc} sensors do not match the {reference_desc} ({difference})")
+
+
+def _noise_covariance(noise: NoiseArg, sensor: Sensor) -> FloatArray:
+    """Sensor-space noise covariance for ``sensor``, in ``sensor``'s channel order.
+
+    Parameters
+    ----------
+    noise
+        Noise as :class:`mne.Covariance`, as :class:`eelbrain.NDVar` data (typically
+        an empty-room recording) from which the covariance is estimated, or as a
+        covariance matrix for ``sensor``.
+    sensor
+        Sensors of the lead field. ``noise`` has to have exactly these channels,
+        in the same order.
+
+    Raises
+    ------
+    ValueError
+        If ``noise`` does not have exactly ``sensor``'s channels, in ``sensor``'s
+        order.
+    TypeError
+        If ``noise`` is none of the supported types.
+    """
+    if isinstance(noise, mne.Covariance):
+        _assert_sensors_equal(noise.ch_names, sensor.names, 'noise covariance', 'lead field')
+        return np.diag(noise.data) if noise['diag'] else noise.data
+    elif isinstance(noise, NDVar):
+        _assert_sensors_equal(noise.get_dim('sensor').names, sensor.names, 'noise data', 'lead field')
+        er = noise.get_data(('sensor', 'time'))
+        return np.dot(er, er.T) / er.shape[1]
+    elif isinstance(noise, np.ndarray):
+        # shape is checked against the lead field in ForwardModel.__post_init__
+        return noise
+    else:
+        raise TypeError(f"Invalid noise type: {type(noise)}. Must be NDVar, mne.Covariance, or ndarray.")
 
 
 @dataclass(eq=False, repr=False)
@@ -33,7 +107,8 @@ class ForwardModel:
         Forward solution as a 2-D array, shape ``(n_sensors, n_sources)`` or
         ``(n_sensors, n_sources * len(space))`` for free orientation.
     noise_covariance
-        Sensor-space noise covariance, shape ``(n_sensors, n_sensors)``.
+        Sensor-space noise covariance, shape ``(n_sensors, n_sensors)``, with the
+        channels in the order of ``sensor``.
     source
         Source dimension of the forward model.
     sensor
@@ -57,14 +132,33 @@ class ForwardModel:
     lead_field_scaling: float = field(init=False)
 
     def __post_init__(self) -> None:
+        # The lead field and the whitening filter are indexed by position, so a
+        # mismatch in either would silently mix up channels or sources.
+        n_sensors, n_sources = len(self.sensor), len(self.source) * self.dc
+        if self.lead_field.shape != (n_sensors, n_sources):
+            raise ValueError(f"lead_field of shape {self.lead_field.shape}; should be {(n_sensors, n_sources)} for {n_sensors} sensors and {len(self.source)} sources with {self.dc} orientation(s)")
+        if self.noise_covariance.shape != (n_sensors, n_sensors):
+            raise ValueError(f"noise covariance of shape {self.noise_covariance.shape}; should be {(n_sensors, n_sensors)} to match the {n_sensors} sensors of the lead field")
         self._prewhiten()
 
     def __repr__(self) -> str:
         return f'<{type(self).__name__}: {_forward_summary(self)}>'
 
     @classmethod
-    def from_lead_field(cls, lead_field: NDVar, noise_covariance: FloatArray) -> ForwardModel:
-        """Construct from an Eelbrain lead-field :class:`~eelbrain.NDVar`."""
+    def from_lead_field(cls, lead_field: NDVar, noise_covariance: NoiseArg) -> ForwardModel:
+        """Construct from an Eelbrain lead-field :class:`~eelbrain.NDVar`.
+
+        Parameters
+        ----------
+        lead_field
+            Forward solution with ``sensor`` and ``source`` dimensions and an
+            optional ``space`` dimension for free orientation.
+        noise_covariance
+            Noise covariance, aligned with the lead field's sensors: as
+            :class:`mne.Covariance`, as :class:`eelbrain.NDVar` data from which a
+            covariance is estimated, or as an already aligned covariance matrix
+            (see :class:`~ncrf.NCRFEstimator`).
+        """
         if lead_field.has_dim('space'):
             g = lead_field.get_data(dims=('sensor', 'source', 'space')).astype(np.float64)
             g = g.reshape(g.shape[0], -1)
@@ -72,7 +166,8 @@ class ForwardModel:
         else:
             g = lead_field.get_data(dims=('sensor', 'source')).astype(np.float64)
             space = None
-        return cls(g, noise_covariance.astype(np.float64), lead_field.get_dim('source'), lead_field.get_dim('sensor'), space)
+        sensor = lead_field.get_dim('sensor')
+        return cls(g, _noise_covariance(noise_covariance, sensor).astype(np.float64), lead_field.get_dim('source'), sensor, space)
 
     @property
     def dc(self) -> int:
@@ -89,34 +184,6 @@ class ForwardModel:
         dc = self.dc
         return slice(i * dc, (i + 1) * dc)
 
-    def assert_sensors(self, data: RegressionData) -> None:
-        """Check that ``data`` has this forward model's sensors, in the same order.
-
-        The whitening filter and the lead field are indexed by channel position,
-        not by name, so anything but an exact match silently attributes the data
-        of one channel to another.
-
-        Parameters
-        ----------
-        data
-            Dataset to check.
-
-        Raises
-        ------
-        ValueError
-            If ``data`` has different sensors than the forward model.
-        """
-        data_names = list(data.sensor_dim.names)
-        model_names = list(self.sensor.names)
-        if data_names != model_names:
-            only_data = [name for name in data_names if name not in set(model_names)]
-            only_model = [name for name in model_names if name not in set(data_names)]
-            if only_data or only_model:
-                difference = f"only in data: {only_data or 'none'}; only in forward model: {only_model or 'none'}"
-            else:
-                difference = f"same channels in a different order; data starts with {data_names[:3]}, forward model with {model_names[:3]}"
-            raise ValueError(f"data sensors do not match the forward model ({difference}); the whitening filter and the lead field are indexed by channel position, so the forward model has to be built for exactly these sensors, e.g. lead_field.sub(sensor=data.sensor_dim)")
-
     def whiten(
             self,
             data: RegressionData,
@@ -127,7 +194,8 @@ class ForwardModel:
         Parameters
         ----------
         data
-            Dataset to whiten; its sensors have to match :meth:`assert_sensors`.
+            Dataset to whiten; it has to have exactly this forward model's sensors,
+            in the same order.
         accept_whitening
             Return an already-whitened dataset unchanged (see
             :meth:`RegressionData.whiten`).
@@ -138,7 +206,7 @@ class ForwardModel:
             If ``data`` has different sensors than the forward model, or is
             already whitened and ``accept_whitening`` is false.
         """
-        self.assert_sensors(data)
+        _assert_sensors_equal(data.sensor_dim.names, self.sensor.names, 'data', 'forward model')
         return data.whiten(self.whitening_filter, accept_whitening=accept_whitening)
 
     def _prewhiten(self) -> None:

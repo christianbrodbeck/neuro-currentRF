@@ -4,7 +4,8 @@ from __future__ import annotations
 from typing import Literal
 from collections.abc import Callable, Sequence
 
-from eelbrain import Categorial, Scalar, Space
+from eelbrain import Categorial, NDVar, Scalar, Space
+import mne
 import numpy as np
 import numpy.typing as npt
 
@@ -15,5 +16,6 @@ TrialData = tuple[FloatArray, FloatArray]
 ObjectiveFunction = Callable[[FloatArray], float]
 GradientFunction = Callable[[FloatArray], FloatArray]
 MuArg = float | Sequence[float] | FloatArray | Literal["auto"]
+NoiseArg = mne.Covariance | NDVar | FloatArray
 ScaleArg = Literal["l1", "l2", "spectral"] | None
 StimDimensions = Categorial | Scalar | Space

@@ -15,15 +15,13 @@ import collections
 from collections.abc import Sequence
 from typing import TypeAlias
 
-from eelbrain import NDVar, Sensor
-import mne
-import numpy as np
+from eelbrain import NDVar
 
 from ._crossvalidation import CrossValidation
 from ._data import RegressionData
 from ._model import NCRFEstimator, NCRFFit
 from ._solvers import ChampLasso, Solver
-from ._typing import MuArg, ScaleArg
+from ._typing import MuArg, NoiseArg, ScaleArg
 
 
 StimulusInput: TypeAlias = NDVar | Sequence[NDVar]
@@ -31,49 +29,11 @@ TrialStimulusInput: TypeAlias = StimulusInput | Sequence[StimulusInput]
 MegInput: TypeAlias = NDVar | Sequence[NDVar]
 
 
-def _handle_noise_channels(
-        noise: mne.Covariance | NDVar | np.ndarray,
-        sensor_dim: Sensor,
-) -> np.ndarray:
-    """Return the noise covariance aligned to the MEG sensor order."""
-    if isinstance(noise, mne.Covariance):
-        chs_noise = set(noise.ch_names)
-        chs_data = set(sensor_dim.names)
-        missing = sorted(chs_data - chs_noise)
-        if missing:
-            raise RuntimeError(f"Missing channels in noise covariance: {', '.join(missing)}")
-
-        index = [noise.ch_names.index(ch) for ch in sensor_dim.names]
-
-        if noise['diag']:
-            full_cov = np.zeros((len(noise.data), len(noise.data)))
-            row, col = np.diag_indices(full_cov.shape[0])
-            full_cov[row, col] = noise.data
-            noise_cov = full_cov[index, :][:, index]
-        else:
-            noise_cov = noise.data[index, :][:, index]
-
-    elif isinstance(noise, NDVar):
-        er = noise.get_data(('sensor', 'time'))
-        noise_cov = np.dot(er, er.T) / er.shape[1]
-
-    elif isinstance(noise, np.ndarray):
-        n = len(sensor_dim)
-        if noise.shape != (n, n):
-            raise ValueError(f"noise = array of shape {noise.shape}; should be {(n, n)}")
-        noise_cov = noise
-
-    else:
-        raise TypeError(f"Invalid noise type: {type(noise)}. Must be NDVar, mne.Covariance, or ndarray.")
-
-    return noise_cov
-
-
 def fit_ncrf(
         meg: MegInput,
         stim: TrialStimulusInput,
         lead_field: NDVar,
-        noise: mne.Covariance | NDVar | np.ndarray,
+        noise: NoiseArg,
         tstart: float | Sequence[float] = 0,
         tstop: float | Sequence[float] = 0.5,
         basis_stride: int = 1,
@@ -114,8 +74,8 @@ def fit_ncrf(
     noise
         Empty-room noise covariance, either directly as :class:`mne.Covariance`, as an
         :class:`eelbrain.NDVar` from which a covariance will be estimated, or as an
-        already aligned covariance matrix. Covariance inputs are checked against the MEG
-        sensor order and raise an error when sensors are missing or the shape is wrong.
+        already aligned covariance matrix. Whichever form, the noise has to be for
+        exactly the MEG sensors, in the same order.
     tstart
         Start of the TRF in seconds. A scalar applies to all predictors; a sequence
         specifies one start time per predictor.
@@ -265,13 +225,8 @@ def fit_ncrf(
         scale, stim_is_single, basis_std=basis_std, in_place=in_place,
     )
 
-    # noise covariance
-    noise_cov = _handle_noise_channels(noise, ds.sensor_dim)
-
-    if lead_field.get_dim('sensor') != ds.sensor_dim:
-        lead_field = lead_field.sub(sensor=ds.sensor_dim)
-
-    estimator = NCRFEstimator(lead_field, noise_cov)
+    # the estimator trims the forward model to the sensors of the data
+    estimator = NCRFEstimator(lead_field, noise)
     if solver is None:
         solver = ChampLasso(mu=mu, n_iter=n_iter, n_iterc=n_iterc, n_iterf=n_iterf, tol=tol, use_es=use_ES)
 

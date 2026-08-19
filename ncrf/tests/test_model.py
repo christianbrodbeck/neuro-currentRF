@@ -4,6 +4,7 @@
 from dataclasses import dataclass, replace
 from unittest.mock import MagicMock, Mock
 
+import mne
 import numpy as np
 import pytest
 
@@ -51,13 +52,13 @@ def test_fit_accepts_generic_solver(monkeypatch):
     estimator = NCRFEstimator.__new__(NCRFEstimator)
     data = MagicMock()
     estimator.forward = Mock(
-        # unsafe: Mock rejects attributes named assert_* unless told otherwise
-        unsafe=True,
         whiten=Mock(return_value=data),
         whitened_lead_field=np.ones((1, 1)),
         lead_field=np.ones((1, 1)),
         lead_field_scaling=1.0,
+        sensor=SENSOR,
     )
+    data.sensor_dim = SENSOR
     data.design = Mock()
     data.covariates = [np.ones((4, 1))]
     data.norm_factor = 1.0
@@ -318,8 +319,53 @@ def test_rejects_sensor_mismatch():
 
     estimator = NCRFEstimator.__new__(NCRFEstimator)
     estimator.forward = model.forward
-    with pytest.raises(ValueError, match="sensors do not match"):
-        estimator.fit(reordered, _ZeroSolver())
+    with pytest.raises(ValueError, match="data sensors do not match"):
+        estimator.fit(renamed, _ZeroSolver())
+
+
+def test_estimator_noise_forms():
+    """Every form of noise input yields the covariance of the lead field's sensors."""
+    rng = np.random.RandomState(0)
+    lead_field = NDVar(rng.normal(size=(3, 4)), (SENSOR, Scalar('source', range(4))))
+    names = list(SENSOR.names)
+    a = rng.normal(size=(3, 3))
+    data = a.dot(a.T)
+
+    covariance = mne.Covariance(data, names, [], [], 0)
+    np.testing.assert_array_equal(NCRFEstimator(lead_field, covariance).forward.noise_covariance, data)
+
+    # a diagonal covariance is expanded to a full matrix
+    variance = np.diag(data).copy()
+    diagonal = mne.Covariance(variance, names, [], [], 0)
+    np.testing.assert_array_equal(NCRFEstimator(lead_field, diagonal).forward.noise_covariance, np.diag(variance))
+
+    # empty-room data is reduced to its covariance
+    empty_room = NDVar(rng.normal(size=(3, 500)), (SENSOR, UTS(0, 0.01, 500)))
+    x = empty_room.get_data(('sensor', 'time'))
+    np.testing.assert_allclose(NCRFEstimator(lead_field, empty_room).forward.noise_covariance, x.dot(x.T) / x.shape[1])
+
+
+def test_estimator_rejects_invalid_noise():
+    """Noise that is not for the lead field's sensors points to a data error."""
+    rng = np.random.RandomState(0)
+    lead_field = NDVar(rng.normal(size=(3, 4)), (SENSOR, Scalar('source', range(4))))
+    names = list(SENSOR.names)
+
+    with pytest.raises(ValueError, match=r"only in noise covariance: none; only in lead field: \['c'\]"):
+        NCRFEstimator(lead_field, mne.Covariance(np.eye(2), names[:2], [], [], 0))
+    # an extra channel is not silently dropped
+    with pytest.raises(ValueError, match=r"only in noise covariance: \['x'\]; only in lead field: none"):
+        NCRFEstimator(lead_field, mne.Covariance(np.eye(4), [*names, 'x'], [], [], 0))
+    # neither is a different channel order
+    with pytest.raises(ValueError, match="same channels in a different order"):
+        NCRFEstimator(lead_field, mne.Covariance(np.eye(3), names[::-1], [], [], 0))
+    reordered = NDVar(rng.normal(size=(3, 100)), (Sensor([[0., 0, 1], [0, 1, 0], [1, 0, 0]], names[::-1]), UTS(0, 0.01, 100)))
+    with pytest.raises(ValueError, match="noise data sensors do not match the lead field"):
+        NCRFEstimator(lead_field, reordered)
+    with pytest.raises(ValueError, match=r"noise covariance of shape \(4, 4\)"):
+        NCRFEstimator(lead_field, np.eye(4))
+    with pytest.raises(TypeError, match="Invalid noise type"):
+        NCRFEstimator(lead_field, 'noise-cov.fif')
 
 
 def test_h_scaled():

@@ -20,11 +20,11 @@ import numpy as np
 from ._crossvalidation import CrossValidation, CVResult
 from ._data import RegressionData
 from ._trf_design import TRFDesign
-from ._forward import ForwardModel
+from ._forward import ForwardModel, _assert_sensors_equal
 from ._metrics import Metric, explained_variance, l2_error, merge_scores
 from ._repr import _count_repr, _forward_summary
 from ._solvers import Solver, SolverFit
-from ._typing import FloatArray
+from ._typing import FloatArray, NoiseArg
 
 
 class NCRF:
@@ -125,7 +125,7 @@ class NCRF:
             Predicted arrays, one per segment, each shaped
             ``(n_sensors, n_times)``.
         """
-        self.forward.assert_sensors(data)
+        _assert_sensors_equal(data.sensor_dim.names, self.forward.sensor.names, 'data', 'forward model')
         theta = self._theta_for(data)
         if whitened:
             return [self._predict_whitened(theta, covariate) for covariate in data.covariates]
@@ -265,8 +265,11 @@ class NCRFEstimator:
         Forward solution a.k.a. lead-field matrix, with ``sensor`` and ``source``
         dimensions and an optional ``space`` dimension for free orientation.
     noise_covariance
-        Noise covariance matrix in sensor space, typically estimated from empty-room
-        recordings.
+        Noise covariance in sensor space, typically estimated from an empty-room
+        recording: either directly as :class:`mne.Covariance`, as an
+        :class:`eelbrain.NDVar` from which a covariance will be estimated, or as an
+        already aligned covariance matrix. Whichever form, the noise has to be for
+        exactly the lead field's sensors, in the same order.
 
     Notes
     -----
@@ -284,7 +287,7 @@ class NCRFEstimator:
     def __init__(
             self,
             lead_field: NDVar,
-            noise_covariance: FloatArray,
+            noise_covariance: NoiseArg,
     ) -> None:
         self.forward = ForwardModel.from_lead_field(lead_field, noise_covariance)
 
@@ -342,9 +345,10 @@ class NCRFEstimator:
         Parameters
         ----------
         data
-            Prepared M/EEG data and corresponding basis-projected covariates,
-            with the same channels in the same order as the lead field. The
-            input object is not mutated.
+            Prepared M/EEG data and corresponding basis-projected covariates. The
+            data is never modified to fit the forward model: channels the forward
+            model does not cover are an error, whereas a forward model covering
+            more channels is trimmed to the data (see :meth:`ForwardModel.sub`).
         solver
             Solver configuration. A solver with more than one configuration to
             choose from selects one through cross-validation before the final fit.

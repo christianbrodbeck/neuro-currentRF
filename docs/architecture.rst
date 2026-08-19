@@ -49,8 +49,7 @@ The high-level data flow is::
      reconstructed TRFs)   and diagnostics)
 
 :func:`~ncrf.fit_ncrf` is the convenience layer. It accepts the supported input
-layouts, creates :class:`~ncrf.RegressionData`, aligns the noise covariance and
-lead field to the data sensors, and delegates the fit to
+layouts, creates :class:`~ncrf.RegressionData`, and delegates the fit to
 :class:`~ncrf.NCRFEstimator`.
 
 Data and design
@@ -65,8 +64,10 @@ the fitted model, so that ``NCRF.h`` can reconstruct labeled source-space TRFs
 without retaining the training dataset, and so that the model can check that new
 data is on the scale it was fit on.
 
-The dataset does not own a forward model. :class:`~ncrf.NCRFEstimator` builds
-and owns that state from a lead field and sensor noise covariance. The estimator
+:class:`~ncrf.NCRFEstimator` builds a forward model from a lead field and sensor
+noise covariance, which have to cover the same channels. At fit time the forward
+model is trimmed to the sensors of the data, since it can legitimately cover more
+channels, while data the forward model does not cover is an error. The estimator
 whitens the data before candidate selection and fitting; the fitted
 :class:`~ncrf.NCRF` retains the forward state needed to apply the same transform
 when predicting.
