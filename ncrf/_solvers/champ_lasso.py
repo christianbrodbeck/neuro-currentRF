@@ -145,8 +145,10 @@ def _whiten_by_sigma_b(
         Lc = linalg.cholesky(sigma_b, lower=True)
         return [linalg.solve(Lc, array) for array in arrays], np.log(np.diag(Lc)).sum()
     except np.linalg.LinAlgError:
+        # e holds the reciprocals of the significant eigenvalues, so
+        # -log(e).sum() is the full (pseudo-)log-determinant
         Lc, e = _inv_sqrtm(sigma_b, return_eig=True)
-        return [np.dot(Lc, array) for array in arrays], -np.log(e).sum()
+        return [np.dot(Lc, array) for array in arrays], -np.log(e).sum() / 2
 
 
 def _evaluate_objective(
