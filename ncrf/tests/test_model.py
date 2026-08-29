@@ -21,11 +21,14 @@ SENSOR = Sensor([[1., 0, 0], [0, 1, 0], [0, 0, 1]], ['a', 'b', 'c'])
 
 
 def test_fit_model():
-    estimator = NCRFEstimator(forward=object())
+    forward = Mock()
+    forward.sensor.names = ['a', 'b']
+    estimator = NCRFEstimator(forward=forward)
     solver = Mock()
     solver_fit = SolverFit(np.empty((2, 3)))
     solver.solve.return_value = solver_fit
     data = Mock(design=object(), is_whitened=True)
+    data.sensor_dim.names = ['a', 'b']
 
     model, returned_fit = estimator.fit_model(data, solver, True)
 
@@ -34,6 +37,12 @@ def test_fit_model():
     assert model.design is data.design
     assert returned_fit is solver_fit
     solver.solve.assert_called_once_with(estimator.forward, data, verbose=True)
+
+    # channel misattribution would be silent, so mismatched sensors are rejected
+    data.sensor_dim.names = ['b', 'a']
+    with pytest.raises(ValueError, match="data sensors do not match the forward model"):
+        estimator.fit_model(data, solver)
+    data.sensor_dim.names = ['a', 'b']
 
     # the solver assumes isotropic noise, so raw data must not reach it
     data.is_whitened = False

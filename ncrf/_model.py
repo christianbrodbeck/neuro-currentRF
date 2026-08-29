@@ -328,9 +328,12 @@ class NCRFEstimator:
         Raises
         ------
         ValueError
-            If ``data`` is not whitened. The solver assumes isotropic noise, so
-            fitting raw data would silently produce wrong coefficients.
+            If ``data``'s sensors do not match the forward model's, or if
+            ``data`` is not whitened. The solver multiplies the lead field and
+            the data by channel position and assumes isotropic noise, so either
+            mismatch would silently produce wrong coefficients.
         """
+        _assert_sensors_equal(data.sensor_dim.names, self.forward.sensor.names, 'data', 'forward model')
         if not data.is_whitened:
             raise ValueError("data is not whitened; use NCRFEstimator.fit(), which whitens the data, or whiten it with self.forward.whiten(data)")
         solver_fit = solver.solve(self.forward, data, verbose=verbose)
