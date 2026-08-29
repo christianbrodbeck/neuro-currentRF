@@ -10,6 +10,7 @@ model with training scores and solver-specific provenance.
 # License: BSD (3-clause)
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
 from functools import cached_property
 from typing import Any
 from collections.abc import Sequence
@@ -253,23 +254,19 @@ class NCRF:
         return [h / s for h, s in zip(self.h, scaling)]
 
 
+@dataclass(eq=False, repr=False)
 class NCRFEstimator:
     """Estimator for neuro-current response functions (NCRFs).
 
-    Construct with a lead field and noise covariance, then call :meth:`fit`
-    with a :class:`RegressionData` instance to obtain an :class:`NCRFFit`.
+    Construct with :meth:`from_lead_field` from a lead field and noise
+    covariance, then call :meth:`fit` with a :class:`RegressionData` instance
+    to obtain an :class:`NCRFFit`.
 
     Parameters
     ----------
-    lead_field
-        Forward solution a.k.a. lead-field matrix, with ``sensor`` and ``source``
-        dimensions and an optional ``space`` dimension for free orientation.
-    noise_covariance
-        Noise covariance in sensor space, typically estimated from an empty-room
-        recording: either directly as :class:`mne.Covariance`, as an
-        :class:`eelbrain.NDVar` from which a covariance will be estimated, or as an
-        already aligned covariance matrix. Whichever form, the noise has to be for
-        exactly the lead field's sensors, in the same order.
+    forward
+        The forward-model state to fit with (lead field, whitening filter, and
+        source, sensor, and orientation dimensions).
 
     Notes
     -----
@@ -281,15 +278,29 @@ class NCRFEstimator:
     """
 
     #: The internal forward-model state (lead field, whitening filter, and
-    #: source, sensor, and orientation dimensions).
+    #: source, sensor, and orientation dimensions), covering the lead-field
+    #: channels for which noise covariance is available.
     forward: ForwardModel
 
-    def __init__(
-            self,
-            lead_field: NDVar,
-            noise_covariance: NoiseArg,
-    ) -> None:
-        self.forward = ForwardModel.from_lead_field(lead_field, noise_covariance)
+    @classmethod
+    def from_lead_field(cls, lead_field: NDVar, noise_covariance: NoiseArg) -> NCRFEstimator:
+        """Construct from a lead-field :class:`~eelbrain.NDVar` and noise covariance.
+
+        Parameters
+        ----------
+        lead_field
+            Forward solution a.k.a. lead-field matrix, with ``sensor`` and ``source``
+            dimensions and an optional ``space`` dimension for free orientation.
+        noise_covariance
+            Noise covariance in sensor space, typically estimated from an empty-room
+            recording: either directly as :class:`mne.Covariance` or as an
+            :class:`eelbrain.NDVar` from which a covariance will be estimated.
+            Channels are matched to the lead field by name: the noise channels must
+            be a subset of the lead field's channels (channels dropped from the
+            noise, e.g. bad channels, are simply excluded from fitting), whereas
+            noise for a channel without a lead field is an error.
+        """
+        return cls(ForwardModel.from_lead_field(lead_field, noise_covariance))
 
     def __repr__(self) -> str:
         return f'<{type(self).__name__}: {_forward_summary(self.forward)}>'
@@ -370,6 +381,9 @@ class NCRFEstimator:
             Fitted model, selected solver, solver state, training scores, and
             optional cross-validation and source-wise diagnostics.
         """
+        if list(data.sensor_dim.names) != list(self.forward.sensor.names):
+            estimator = replace(self, forward=self.forward.sub(data.sensor_dim))
+            return estimator.fit(data, solver, cv=cv, verbose=verbose, compute_explained_variance=compute_explained_variance, accept_whitening=accept_whitening)
         data = self.forward.whiten(data, accept_whitening)
         if cv is None:
             cv = CrossValidation()

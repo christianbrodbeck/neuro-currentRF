@@ -17,7 +17,7 @@ For a prepared `RegressionData` dataset, the lower-level API is:
 ```python
 from ncrf import ChampLasso, NCRFEstimator
 
-estimator = NCRFEstimator(lead_field, noise_covariance)
+estimator = NCRFEstimator.from_lead_field(lead_field, noise_covariance)
 solver = ChampLasso(mu='auto', n_iter=30, n_iterc=10, n_iterf=100)
 result = estimator.fit(data, solver)
 ```

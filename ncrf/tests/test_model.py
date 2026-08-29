@@ -21,8 +21,7 @@ SENSOR = Sensor([[1., 0, 0], [0, 1, 0], [0, 0, 1]], ['a', 'b', 'c'])
 
 
 def test_fit_model():
-    estimator = NCRFEstimator.__new__(NCRFEstimator)
-    estimator.forward = object()
+    estimator = NCRFEstimator(forward=object())
     solver = Mock()
     solver_fit = SolverFit(np.empty((2, 3)))
     solver.solve.return_value = solver_fit
@@ -48,16 +47,23 @@ class _ZeroSolver(Solver):
         return SolverFit(np.zeros((1, 1)))
 
 
+@dataclass(frozen=True)
+class _ShapedZeroSolver(Solver):
+    """Zero coefficients matching the forward model and design it is fit to."""
+
+    def solve(self, forward, data, *, verbose=False):
+        return SolverFit(np.zeros((forward.lead_field.shape[1], data.design.n_coefficients)))
+
+
 def test_fit_accepts_generic_solver(monkeypatch):
-    estimator = NCRFEstimator.__new__(NCRFEstimator)
     data = MagicMock()
-    estimator.forward = Mock(
+    estimator = NCRFEstimator(forward=Mock(
         whiten=Mock(return_value=data),
         whitened_lead_field=np.ones((1, 1)),
         lead_field=np.ones((1, 1)),
         lead_field_scaling=1.0,
         sensor=SENSOR,
-    )
+    ))
     data.sensor_dim = SENSOR
     data.design = Mock()
     data.covariates = [np.ones((4, 1))]
@@ -317,9 +323,8 @@ def test_rejects_sensor_mismatch():
     with pytest.raises(ValueError, match=r"only in data: \['z'\]; only in forward model: \['c'\]"):
         model.predict(renamed)
 
-    estimator = NCRFEstimator.__new__(NCRFEstimator)
-    estimator.forward = model.forward
-    with pytest.raises(ValueError, match="data sensors do not match"):
+    estimator = NCRFEstimator(model.forward)
+    with pytest.raises(ValueError, match=r"channels not covered by the forward model: \['z'\]"):
         estimator.fit(renamed, _ZeroSolver())
 
 
@@ -332,40 +337,85 @@ def test_estimator_noise_forms():
     data = a.dot(a.T)
 
     covariance = mne.Covariance(data, names, [], [], 0)
-    np.testing.assert_array_equal(NCRFEstimator(lead_field, covariance).forward.noise_covariance, data)
+    np.testing.assert_array_equal(NCRFEstimator.from_lead_field(lead_field, covariance).forward.noise_covariance, data)
 
     # a diagonal covariance is expanded to a full matrix
     variance = np.diag(data).copy()
     diagonal = mne.Covariance(variance, names, [], [], 0)
-    np.testing.assert_array_equal(NCRFEstimator(lead_field, diagonal).forward.noise_covariance, np.diag(variance))
+    np.testing.assert_array_equal(NCRFEstimator.from_lead_field(lead_field, diagonal).forward.noise_covariance, np.diag(variance))
 
     # empty-room data is reduced to its covariance
     empty_room = NDVar(rng.normal(size=(3, 500)), (SENSOR, UTS(0, 0.01, 500)))
     x = empty_room.get_data(('sensor', 'time'))
-    np.testing.assert_allclose(NCRFEstimator(lead_field, empty_room).forward.noise_covariance, x.dot(x.T) / x.shape[1])
+    np.testing.assert_allclose(NCRFEstimator.from_lead_field(lead_field, empty_room).forward.noise_covariance, x.dot(x.T) / x.shape[1])
+
+    # channels are matched by name, so a different channel order is aligned silently
+    reverse = np.ix_([2, 1, 0], [2, 1, 0])
+    reversed_covariance = mne.Covariance(data[reverse], names[::-1], [], [], 0)
+    np.testing.assert_array_equal(NCRFEstimator.from_lead_field(lead_field, reversed_covariance).forward.noise_covariance, data)
+    reordered_room = NDVar(x[::-1], (Sensor([[0., 0, 1], [0, 1, 0], [1, 0, 0]], names[::-1]), UTS(0, 0.01, 500)))
+    np.testing.assert_allclose(NCRFEstimator.from_lead_field(lead_field, reordered_room).forward.noise_covariance, x.dot(x.T) / x.shape[1])
+
+    # noise for a subset of the lead field's channels trims the lead field,
+    # while the full forward solution is retained
+    estimator = NCRFEstimator.from_lead_field(lead_field, mne.Covariance(data[:2, :2], names[:2], [], [], 0))
+    assert list(estimator.forward.sensor.names) == names[:2]
+    np.testing.assert_array_equal(estimator.forward.lead_field, lead_field.x[:2])
+    np.testing.assert_array_equal(estimator.forward.noise_covariance, data[:2, :2])
 
 
 def test_estimator_rejects_invalid_noise():
-    """Noise that is not for the lead field's sensors points to a data error."""
+    """Noise for channels beyond the lead field points to a data error."""
     rng = np.random.RandomState(0)
     lead_field = NDVar(rng.normal(size=(3, 4)), (SENSOR, Scalar('source', range(4))))
     names = list(SENSOR.names)
 
-    with pytest.raises(ValueError, match=r"only in noise covariance: none; only in lead field: \['c'\]"):
-        NCRFEstimator(lead_field, mne.Covariance(np.eye(2), names[:2], [], [], 0))
     # an extra channel is not silently dropped
-    with pytest.raises(ValueError, match=r"only in noise covariance: \['x'\]; only in lead field: none"):
-        NCRFEstimator(lead_field, mne.Covariance(np.eye(4), [*names, 'x'], [], [], 0))
-    # neither is a different channel order
-    with pytest.raises(ValueError, match="same channels in a different order"):
-        NCRFEstimator(lead_field, mne.Covariance(np.eye(3), names[::-1], [], [], 0))
-    reordered = NDVar(rng.normal(size=(3, 100)), (Sensor([[0., 0, 1], [0, 1, 0], [1, 0, 0]], names[::-1]), UTS(0, 0.01, 100)))
-    with pytest.raises(ValueError, match="noise data sensors do not match the lead field"):
-        NCRFEstimator(lead_field, reordered)
-    with pytest.raises(ValueError, match=r"noise covariance of shape \(4, 4\)"):
-        NCRFEstimator(lead_field, np.eye(4))
+    with pytest.raises(ValueError, match=r"noise covariance channels missing from the lead field: \['x'\]"):
+        NCRFEstimator.from_lead_field(lead_field, mne.Covariance(np.eye(4), [*names, 'x'], [], [], 0))
+    # a bare array has no channel names to align by
     with pytest.raises(TypeError, match="Invalid noise type"):
-        NCRFEstimator(lead_field, 'noise-cov.fif')
+        NCRFEstimator.from_lead_field(lead_field, np.eye(3))
+    with pytest.raises(TypeError, match="Invalid noise type"):
+        NCRFEstimator.from_lead_field(lead_field, 'noise-cov.fif')
+
+
+def test_fit_trims_forward_to_data():
+    """Data on a subset of the forward model's channels is fit with a matching sub-forward."""
+    rng = np.random.RandomState(0)
+    lead_field = NDVar(rng.normal(size=(3, 4)), (SENSOR, Scalar('source', range(4))))
+    names = list(SENSOR.names)
+    a = rng.normal(size=(3, 3))
+    noise = mne.Covariance(a.dot(a.T), names, [], [], 0)
+    estimator = NCRFEstimator.from_lead_field(lead_field, noise)
+
+    time = UTS(0, 0.01, 200)
+    sensor_sub = Sensor([[0., 0, 1], [1., 0, 0]], ['c', 'a'])
+    meg = [NDVar(rng.normal(size=(2, 200)), (sensor_sub, time))]
+    stim = [[NDVar(rng.normal(size=200), (time,), name='x')]]
+    data = RegressionData.from_data(meg, stim, 0, 0.05, scale=None, stim_is_single=True)
+
+    result = estimator.fit(data, _ShapedZeroSolver())
+
+    # the model's forward is trimmed to the data's channels, in the data's order
+    model = result.model
+    assert list(model.forward.sensor.names) == ['c', 'a']
+    np.testing.assert_array_equal(model.forward.lead_field, lead_field.x[[2, 0]])
+    np.testing.assert_array_equal(model.forward.noise_covariance, noise.data[np.ix_([2, 0], [2, 0])])
+    # the estimator itself is unchanged, and the full forward solution is retained
+    assert list(estimator.forward.sensor.names) == names
+
+    # the sub-forward is identical to one built from the trimmed inputs directly
+    reference = NCRFEstimator.from_lead_field(lead_field.sub(sensor=['c', 'a']), mne.Covariance(noise.data[np.ix_([2, 0], [2, 0])], ['c', 'a'], [], [], 0)).forward
+    np.testing.assert_array_equal(model.forward.whitening_filter, reference.whitening_filter)
+    np.testing.assert_array_equal(model.forward.whitened_lead_field, reference.whitened_lead_field)
+
+    # data with channels the forward model does not cover is an error
+    sensor_extra = Sensor([[1., 0, 0], [0, 0.5, 0.5]], ['a', 'z'])
+    meg_extra = [NDVar(rng.normal(size=(2, 200)), (sensor_extra, time))]
+    data_extra = RegressionData.from_data(meg_extra, stim, 0, 0.05, scale=None, stim_is_single=True)
+    with pytest.raises(ValueError, match=r"channels not covered by the forward model: \['z'\]"):
+        estimator.fit(data_extra, _ShapedZeroSolver())
 
 
 def test_h_scaled():

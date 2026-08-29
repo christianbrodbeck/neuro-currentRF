@@ -50,9 +50,9 @@ forward model, and a pluggable optimization algorithm (see :doc:`architecture`).
 - :class:`~ncrf.NCRF` is now the fitted model: coefficients, forward state and
   design, with :meth:`~ncrf.NCRF.predict`, :meth:`~ncrf.NCRF.evaluate` and
   :meth:`~ncrf.NCRF.voxelwise_explained_variance`. Fitting moved to
-  :class:`~ncrf.NCRFEstimator`, which is constructed with the lead field and
+  :class:`~ncrf.NCRFEstimator`, which is constructed from the lead field and
   noise covariance. Code doing ``NCRF(lead_field, noise_covariance).fit(data)``
-  becomes ``NCRFEstimator(lead_field, noise_covariance).fit(data, solver)``.
+  becomes ``NCRFEstimator.from_lead_field(lead_field, noise_covariance).fit(data, solver)``.
 - The optimization algorithm is a :class:`~ncrf.Solver`, configured
   independently of the data and the forward model.
   :class:`~ncrf.ChampLasso` implements the published algorithm and carries

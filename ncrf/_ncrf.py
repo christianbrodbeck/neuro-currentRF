@@ -72,10 +72,11 @@ def fit_ncrf(
     lead_field
         Forward solution a.k.a. lead-field matrix.
     noise
-        Empty-room noise covariance, either directly as :class:`mne.Covariance`, as an
-        :class:`eelbrain.NDVar` from which a covariance will be estimated, or as an
-        already aligned covariance matrix. Whichever form, the noise has to be for
-        exactly the MEG sensors, in the same order.
+        Empty-room noise covariance, either directly as :class:`mne.Covariance` or as
+        an :class:`eelbrain.NDVar` from which a covariance will be estimated. Channels
+        are matched by name: the noise channels must be a subset of the lead field's
+        channels, and the ``meg`` channels must in turn be covered by the noise; the
+        model is fit on the ``meg`` channels.
     tstart
         Start of the TRF in seconds. A scalar applies to all predictors; a sequence
         specifies one start time per predictor.
@@ -225,8 +226,9 @@ def fit_ncrf(
         scale, stim_is_single, basis_std=basis_std, in_place=in_place,
     )
 
-    # the estimator trims the forward model to the sensors of the data
-    estimator = NCRFEstimator(lead_field, noise)
+    # the estimator trims the forward model to the noise channels, and its fit()
+    # trims further to the sensors of the data
+    estimator = NCRFEstimator.from_lead_field(lead_field, noise)
     if solver is None:
         solver = ChampLasso(mu=mu, n_iter=n_iter, n_iterc=n_iterc, n_iterf=n_iterf, tol=tol, use_es=use_ES)
 
