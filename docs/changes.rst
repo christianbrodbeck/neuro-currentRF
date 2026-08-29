@@ -132,6 +132,12 @@ fitted model is applied to new data (see :doc:`guide`).
   change are not comparable for those fits.
 - The ``'spectral'`` norm is measured on centered covariates, so its value differs
   slightly from the post-normalization factor of earlier versions.
+- With ``pad_stim=True``, the zero-padded edge rows now represent a raw stimulus
+  of 0: normalization subtracts the same constant offset from every covariate
+  row, including rows whose lag window extends beyond the data. Previously the
+  stimulus itself was centered before padding, so the padding represented the
+  mean stimulus; edge-row covariates, and hence the fitted TRFs, differ for
+  such fits.
 
 The TRF basis
 """""""""""""

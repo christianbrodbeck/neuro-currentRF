@@ -456,8 +456,12 @@ class RegressionData:
     def normalize(self, design: TRFDesign) -> RegressionData:
         """Return a dataset carrying the centering and scaling recorded in ``design``.
 
-        Normalization is a linear operation on the covariates, so applying it here
-        is equivalent to applying it to the stimulus before covariate construction.
+        Normalization is a linear operation on the covariates, so for rows with a
+        full lag window applying it here is equivalent to applying it to the
+        stimulus before covariate construction. Zero-padded edge rows retained
+        with ``pad_stim=True`` are the exception: they keep representing a raw
+        stimulus of 0, whereas centering the stimulus first would make its
+        padding represent the mean.
         Use this to prepare data for a fitted model, which can only be applied to
         covariates on the scale it was fit on::
 
@@ -491,8 +495,10 @@ class RegressionData:
 
         covariates = [cov.copy() for cov in self.covariates]
         if baseline is not None:
-            # Every retained row has a full lag window, so subtracting a constant from
-            # the stimulus offsets each covariate column by a constant.
+            # For a row with a full lag window, subtracting a constant from the
+            # stimulus offsets each covariate column by a constant. The offset is
+            # applied to every row, so zero-padded edge rows (pad_stim=True)
+            # represent a raw stimulus of 0 rather than 0 after centering.
             offset = design.expand(baseline) * design.basis_column_sums / self.norm_factor
             for cov in covariates:
                 cov -= offset
