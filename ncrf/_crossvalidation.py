@@ -88,7 +88,10 @@ def compute_es_metric(models: Sequence[NCRF], data: RegressionData) -> float:
     Y_bar = Y.mean(axis=0)
     VarY = (((Y - Y_bar) ** 2).sum(axis=1)).mean()
     denominator = (Y_bar ** 2).sum()
-    return np.inf if denominator <= 0 else VarY / denominator
+    # NaN predictions (a diverged fit) are as unstable as it gets
+    if denominator <= 0 or np.isnan(VarY):
+        return np.inf
+    return VarY / denominator
 
 
 @dataclass(frozen=True)
@@ -139,7 +142,7 @@ def _score_candidate(
 
     scores = {key: sum(fold[key] for fold in fold_scores) / len(fold_scores) for key in fold_scores[0]}
     estimation_stability = compute_es_metric(models, data)
-    return CVResult(solver, merge_scores(scores, {'estimation_stability': 10 if np.isnan(estimation_stability) else estimation_stability}))
+    return CVResult(solver, merge_scores(scores, {'estimation_stability': estimation_stability}))
 
 
 def crossvalidate(
