@@ -549,9 +549,9 @@ class ChampLasso(Solver):
             data: RegressionData,
             cv: CrossValidation,
     ) -> tuple[ChampLasso, list[CVResult]]:
-        """Resolve ``mu``, and cross-validate it when there is more than one value."""
+        """Resolve ``mu``, and cross-validate unless it is a fixed number."""
         candidates = self.candidates(estimator.forward, data)
-        if len(candidates) == 1:
+        if _is_number(self.mu):
             return candidates[0], []
         cv_results = crossvalidate(estimator, data, candidates, cv)
         # Extend before selecting, so that the estimation-stability criterion is
