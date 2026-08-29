@@ -54,7 +54,7 @@ def test_score_candidate_uses_estimator_fit_primitive(monkeypatch):
     train_data = object()
     test_data = object()
     data = Mock()
-    data.design.basis = [np.empty((2, 3))]
+    data.design.filter_length = [2]
     data.meg = [[np.empty(10)]]
     data.timeslice.side_effect = [train_data, test_data]
 

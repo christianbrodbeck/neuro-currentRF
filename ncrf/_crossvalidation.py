@@ -122,7 +122,7 @@ def _score_candidate(
     on its held-out window with the model metrics plus whatever the solver's fit
     contributes.
     """
-    d = max(basis.shape[1] for basis in data.design.basis)
+    d = max(data.design.filter_length)
     kf = TimeSeriesSplit(r=0.05, p=n_splits, d=d)
     fold_solver = solver.without_history()
     models = []
