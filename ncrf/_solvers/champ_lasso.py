@@ -586,6 +586,8 @@ class ChampLasso(Solver):
         best = select_by_criterion(cv_results, 'cross-fit')
         mus = [result.solver.mu for result in cv_results]
         if best.mu == min(mus):
+            if best.mu == 0.0:
+                return ()  # cannot extend below the unregularized fit
             new_mus = np.logspace(np.log10(best.mu) - 1, np.log10(best.mu), 4)[:-1]
             direction = 'left'
         elif best.mu == max(mus):
@@ -655,6 +657,8 @@ class ChampLasso(Solver):
                 raise ValueError(f"{mu=}: grid must contain at least one value")
             if not all(_is_number(value) for value in values):
                 raise TypeError(f"{mu=}: all grid values must be numbers")
+            if any(value < 0 for value in values):
+                raise ValueError(f"{mu=}: grid values must be non-negative")
         return tuple(replace(self, mu=float(value)) for value in values)
 
     def solve(
