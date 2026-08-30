@@ -35,8 +35,7 @@ def find_mu(
         dfmu = (-2) * fmu * e / temp
         diff.append(f / dfmu.sum())
         if (mu == 0 and f < 0) or abs(diff[-1] / diff[0]) < tol:
-            logger.info(f"thanks for waiting, (mu: {mu}) calculation complete after:"
-                        f"iteration # {len(diff)} with relative error {diff[-1] / diff[0]}")
+            logger.info(f"thanks for waiting, (mu: {mu}) calculation complete after iteration # {len(diff)} with relative error {diff[-1] / diff[0]}")
             return mu
         mu -= diff[-1]
 
