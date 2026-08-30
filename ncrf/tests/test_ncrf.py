@@ -104,7 +104,7 @@ def test_ncrf():
     # test Gaussian basis standard deviation; also opt-in trajectory storage, which is configured on the solver
     solver = ChampLasso(mu=0.0019444, n_iter=1, n_iterc=1, n_iterf=1, store=('theta', 'gamma', 'sigma_b'))
     result = fit_ncrf(meg, stim, fwd, emptyroom, tstop=0.2, scale='spectral', solver=solver, basis_std=0.050)
-    assert result.solver is solver
+    assert result.solver == solver
     assert set(result.scores) == {'explained_variance', 'l2_error', 'cross_fit', 'weighted_l2_error'}
     assert result.model.design.basis_std == 0.050
     assert len(result.solver_fit.history.theta) == 1
