@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from math import ceil
 from multiprocessing import Pool
 from typing import TYPE_CHECKING
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Iterator, Sequence
 
 from eelbrain._config import CONFIG
 import numpy as np
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from ._model import NCRFEstimator, NCRF
     from ._solvers import Solver
 
-_worker_context: tuple[Callable, tuple] | None = None
+_worker_context: tuple[NCRFEstimator, RegressionData, list[tuple[RegressionData, RegressionData]]] | None = None
 
 
 @dataclass(frozen=True)
@@ -50,19 +50,26 @@ class CrossValidation:
     n_workers: int | None = None
 
 
-def _initialize_worker(score: Callable, *args: object) -> None:
-    """Store large shared inputs once per multiprocessing worker."""
+def _make_folds(data: RegressionData, n_splits: int) -> list[tuple[RegressionData, RegressionData]]:
+    """Train/test fold datasets, shared by every candidate scored on ``data``."""
+    d = max(data.design.filter_length)
+    kf = TimeSeriesSplit(r=0.05, p=n_splits, d=d)
+    return [(data.timeslice(train), data.timeslice(test)) for train, test in kf.split(data.meg[0][0])]
+
+
+def _initialize_worker(estimator: NCRFEstimator, data: RegressionData, n_splits: int) -> None:
+    """Store large shared inputs and the fold datasets once per multiprocessing worker."""
     global _worker_context
     if CONFIG['nice']:
         os.nice(CONFIG['nice'])
-    _worker_context = score, args
+    _worker_context = estimator, data, _make_folds(data, n_splits)
 
 
-def _score_worker(value: object) -> object:
+def _score_worker(solver: Solver) -> CVResult:
     if _worker_context is None:
         raise RuntimeError("cross-validation worker was not initialized")
-    score, args = _worker_context
-    return score(*args, value)
+    estimator, data, folds = _worker_context
+    return _score_candidate(estimator, data, folds, solver)
 
 
 def compute_es_metric(models: Sequence[NCRF], data: RegressionData) -> float:
@@ -116,7 +123,7 @@ class CVResult:
 def _score_candidate(
         estimator: NCRFEstimator,
         data: RegressionData,
-        n_splits: int,
+        folds: Sequence[tuple[RegressionData, RegressionData]],
         solver: Solver,
 ) -> CVResult:
     """Fit and score all cross-validation folds for one solver candidate.
@@ -125,14 +132,10 @@ def _score_candidate(
     on its held-out window with the model metrics plus whatever the solver's fit
     contributes.
     """
-    d = max(data.design.filter_length)
-    kf = TimeSeriesSplit(r=0.05, p=n_splits, d=d)
     fold_solver = solver.without_history()
     models = []
     fold_scores = []
-    for train, test in kf.split(data.meg[0][0]):
-        traindata = data.timeslice(train)
-        testdata = data.timeslice(test)
+    for traindata, testdata in folds:
         model, solver_fit = estimator.fit_model(traindata, fold_solver)
         models.append(model)
         fold_scores.append(merge_scores(
@@ -183,14 +186,15 @@ def crossvalidate(
     results = []
     with tqdm(total=len(candidates), desc="Crossvalidation", unit='candidate', unit_scale=True) as prog:
         if n_workers == 0:
+            folds = _make_folds(data, cv.n_splits)
             for candidate in candidates:
-                results.append(_score_candidate(estimator, data, cv.n_splits, candidate))
+                results.append(_score_candidate(estimator, data, folds, candidate))
                 prog.update()
         else:
             with Pool(
                     processes=n_workers,
                     initializer=_initialize_worker,
-                    initargs=(_score_candidate, estimator, data, cv.n_splits),
+                    initargs=(estimator, data, cv.n_splits),
             ) as pool:
                 for result in pool.imap_unordered(_score_worker, candidates):
                     results.append(result)

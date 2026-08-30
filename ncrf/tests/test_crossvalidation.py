@@ -50,17 +50,36 @@ class _InlinePool:
         return map(function, values)
 
 
-def test_score_candidate_uses_estimator_fit_primitive(monkeypatch):
+def test_make_folds(monkeypatch):
     train_data = object()
     test_data = object()
     data = Mock()
-    data.design.filter_length = [2]
+    data.design.filter_length = [2, 5]
     data.meg = [[np.empty(10)]]
     data.timeslice.side_effect = [train_data, test_data]
 
     splitter = Mock()
     splitter.split.return_value = [(np.array([0, 1]), np.array([2]))]
-    monkeypatch.setattr(cv, 'TimeSeriesSplit', lambda **kwargs: splitter)
+    captured = {}
+
+    def make_splitter(**kwargs):
+        captured.update(kwargs)
+        return splitter
+
+    monkeypatch.setattr(cv, 'TimeSeriesSplit', make_splitter)
+
+    folds = cv._make_folds(data, 2)
+
+    # the gap must cover the longest TRF, so lagged training predictors
+    # cannot reach into the held-out window
+    assert captured == {'r': 0.05, 'p': 2, 'd': 5}
+    assert folds == [(train_data, test_data)]
+
+
+def test_score_candidate_uses_estimator_fit_primitive(monkeypatch):
+    train_data = object()
+    test_data = object()
+    data = Mock()
     monkeypatch.setattr(cv, 'compute_es_metric', lambda models, full_data: 4.0)
 
     model = Mock()
@@ -71,7 +90,7 @@ def test_score_candidate_uses_estimator_fit_primitive(monkeypatch):
     solver = ChampLasso(mu=0.1, tol=1e-5)
     estimator.fit_model.return_value = model, solver_fit
 
-    result = cv._score_candidate(estimator, data, 2, solver)
+    result = cv._score_candidate(estimator, data, [(train_data, test_data)], solver)
 
     fold_solver = estimator.fit_model.call_args.args[1]
     assert fold_solver.mu == 0.1
@@ -128,9 +147,10 @@ def test_select_es_solver():
 def test_crossvalidate_progress(monkeypatch):
     progress = _Progress()
     monkeypatch.setattr(cv, 'tqdm', lambda **kwargs: progress)
+    monkeypatch.setattr(cv, '_make_folds', lambda data, n_splits: [])
     monkeypatch.setattr(
         cv, '_score_candidate',
-        lambda estimator, data, n_splits, solver: _cv_result(solver.mu),
+        lambda estimator, data, folds, solver: _cv_result(solver.mu),
     )
     candidates = tuple(ChampLasso(mu=mu) for mu in (0.1, 0.2, 0.3))
 
@@ -147,8 +167,9 @@ def test_crossvalidate_propagates_worker_error(monkeypatch):
     progress = _Progress()
     monkeypatch.setattr(cv, 'tqdm', lambda **kwargs: progress)
     monkeypatch.setattr(cv, 'Pool', _InlinePool)
+    monkeypatch.setattr(cv, '_make_folds', lambda data, n_splits: [])
 
-    def score_candidate(estimator, data, n_splits, solver):
+    def score_candidate(estimator, data, folds, solver):
         if solver.mu == 0.2:
             raise RuntimeError("worker failed")
         return _cv_result(solver.mu)
