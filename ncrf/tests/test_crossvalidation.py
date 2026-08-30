@@ -83,12 +83,11 @@ def test_score_candidate_uses_estimator_fit_primitive(monkeypatch):
     monkeypatch.setattr(cv, 'compute_es_metric', lambda models, full_data: 4.0)
 
     model = Mock()
-    model.evaluate.return_value = {'l2_error': 3.0, 'explained_variance': 0.5}
     solver_fit = Mock()
-    solver_fit.score.return_value = {'cross_fit': 1.0, 'weighted_l2_error': 2.0}
     estimator = Mock()
     solver = ChampLasso(mu=0.1, tol=1e-5)
     estimator.fit_model.return_value = model, solver_fit
+    estimator._score_fit.return_value = {'cross_fit': 1.0, 'weighted_l2_error': 2.0, 'l2_error': 3.0, 'explained_variance': 0.5}
 
     result = cv._score_candidate(estimator, data, [(train_data, test_data)], solver)
 
@@ -97,8 +96,7 @@ def test_score_candidate_uses_estimator_fit_primitive(monkeypatch):
     assert fold_solver.tol == solver.tol
     assert not fold_solver.store
     estimator.fit_model.assert_called_once_with(train_data, fold_solver)
-    model.evaluate.assert_called_once_with(test_data)
-    solver_fit.score.assert_called_once_with(estimator.forward, test_data)
+    estimator._score_fit.assert_called_once_with(model, solver_fit, test_data)
     assert result.solver is solver
     assert result.scores == {
         'cross_fit': 1.0,

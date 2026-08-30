@@ -125,6 +125,22 @@ def test_default_search_contract():
     assert 'l2_error' in str(solver.cv_table(cv_results))
 
 
+def test_score_fit():
+    """Training and cross-validation fold scores use the same composition."""
+    estimator = NCRFEstimator(forward=object())
+    model = Mock()
+    model.evaluate.return_value = {'l2_error': 3.0, 'explained_variance': 0.5}
+    solver_fit = Mock()
+    solver_fit.score.return_value = {'cross_fit': 1.0}
+    data = object()
+
+    scores = estimator._score_fit(model, solver_fit, data)
+
+    model.evaluate.assert_called_once_with(data)
+    solver_fit.score.assert_called_once_with(estimator.forward, data)
+    assert scores == {'l2_error': 3.0, 'explained_variance': 0.5, 'cross_fit': 1.0}
+
+
 def test_solver_fit_score_defaults_empty():
     """Solvers without their own scores contribute nothing to the score dict."""
     assert SolverFit(np.empty((2, 3))).score(Mock(), Mock()) == {}

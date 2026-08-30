@@ -345,6 +345,19 @@ class NCRFEstimator:
         )
         return model, solver_fit
 
+    def _score_fit(
+            self,
+            model: NCRF,
+            solver_fit: SolverFit,
+            data: RegressionData,
+    ) -> dict[str, float]:
+        """Scores for one fit on ``data``: the model metrics plus the solver's own.
+
+        The same composition scores the training fit and every cross-validation
+        fold, so candidate selection compares the very quantities the fit reports.
+        """
+        return merge_scores(model.evaluate(data), solver_fit.score(self.forward, data))
+
     def fit(
             self,
             data: RegressionData,
@@ -388,10 +401,7 @@ class NCRFEstimator:
             cv = CrossValidation()
         solver, cv_results = solver.search(self, data, cv)
         model, solver_fit = self.fit_model(data, solver, verbose)
-        scores = merge_scores(
-            model.evaluate(data),
-            solver_fit.score(self.forward, data),
-        )
+        scores = self._score_fit(model, solver_fit, data)
         if compute_explained_variance:
             voxelwise = model.voxelwise_explained_variance(data)
         else:

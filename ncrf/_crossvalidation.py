@@ -138,10 +138,7 @@ def _score_candidate(
     for traindata, testdata in folds:
         model, solver_fit = estimator.fit_model(traindata, fold_solver)
         models.append(model)
-        fold_scores.append(merge_scores(
-            model.evaluate(testdata),
-            solver_fit.score(estimator.forward, testdata),
-        ))
+        fold_scores.append(estimator._score_fit(model, solver_fit, testdata))
 
     scores = {key: sum(fold[key] for fold in fold_scores) / len(fold_scores) for key in fold_scores[0]}
     estimation_stability = compute_es_metric(models, data)
