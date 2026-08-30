@@ -246,9 +246,6 @@ class RegressionData:
     covariates
         Basis-projected covariate matrices, one per segment, each shaped
         ``(n_times, n_basis_cols)``.
-    norm_factor
-        ``sqrt(n_times)`` of the first segment; used by :meth:`timeslice`
-        to rescale sub-segments consistently.
     design
         The ``TRFDesign`` that ``covariates`` were built with. It also records the
         normalization that was applied to ``covariates`` (see :meth:`normalize`),
@@ -263,10 +260,14 @@ class RegressionData:
 
     meg: list[FloatArray]  # (sensor, time)
     covariates: list[FloatArray]  # (time, covariate)
-    norm_factor: float
     design: TRFDesign
     sensor_dim: Sensor
     whitener: FloatArray | None = None
+
+    @property
+    def norm_factor(self) -> float:
+        """``sqrt(n_times)`` that MEG and covariates are divided by."""
+        return sqrt(self.meg[0].shape[1])
 
     @property
     def is_whitened(self) -> bool:
@@ -371,7 +372,6 @@ class RegressionData:
 
         meg_arrays: list[FloatArray] = []
         covariate_arrays: list[FloatArray] = []
-        norm_factor = None
 
         for i_segment, (m, ss) in enumerate(zip(meg, stim)):
             meg_time: UTS = m.get_dim('time')
@@ -409,7 +409,7 @@ class RegressionData:
 
             covariate_arrays.append(_project_basis(raw_covs, design, norm_factor))
 
-        data = cls(meg_arrays, covariate_arrays, norm_factor, design, sensor_dim)
+        data = cls(meg_arrays, covariate_arrays, design, sensor_dim)
 
         if scale is not None:
             # the covariate arrays were constructed above and are not shared, so
@@ -562,8 +562,7 @@ class RegressionData:
         idx
             Integer indices selecting the time samples to retain.
         """
-        norm_factor = sqrt(len(idx))
-        mul = self.norm_factor / norm_factor
+        mul = self.norm_factor / sqrt(len(idx))
         meg = [m[:, idx] * mul for m in self.meg]
         covariates = [c[idx, :] * mul for c in self.covariates]
-        return replace(self, meg=meg, covariates=covariates, norm_factor=norm_factor)
+        return replace(self, meg=meg, covariates=covariates)
