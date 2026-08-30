@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import logging
 import time
+import weakref
 from dataclasses import dataclass, field, replace
 from math import log10, sqrt
 from multiprocessing import current_process
@@ -181,6 +182,33 @@ def _evaluate_objective(
     return (ll2 + logdet) / len(data), ll2 / len(data)
 
 
+#: Initialization seeds by dataset (see :func:`_mne_seeds`); entries die with their dataset.
+_seed_cache: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def _mne_seeds(forward: ForwardModel, data: RegressionData) -> tuple[list, list[FloatArray]]:
+    """Per-segment Champagne initialization seeds, cached by dataset.
+
+    The seeds are a pure function of ``(forward, data)`` and are only ever read
+    (every consumer copies before mutating), so they are shared: between the
+    ``mu='auto'`` grid derivation and the final fit on the same data, and across
+    the candidates a cross-validation worker scores on the same folds.
+    """
+    cached = _seed_cache.get(data)
+    if cached is not None and cached[0] is forward:
+        return cached[1], cached[2]
+    init_gamma = []
+    init_sigma_b = []
+    for y, _ in data:
+        t = y.shape[1]
+        gamma, data_cov = forward.mne_initializer(y * (t ** 0.5))
+        gamma = np.reshape(gamma, (-1, forward.dc))
+        init_gamma.append([np.diag(g) for g in gamma])
+        init_sigma_b.append(forward.whitened_noise_covariance + data_cov)
+    _seed_cache[data] = (forward, init_gamma, init_sigma_b)
+    return init_gamma, init_sigma_b
+
+
 class _ChampLassoState:
     """Mutable state for one :meth:`ChampLasso.solve` call."""
 
@@ -212,14 +240,7 @@ class _ChampLassoState:
     def _initialize(self, data: RegressionData) -> None:
         """Seed the working state with a minimum-norm estimate."""
         # MNE-based seeds (re-read by _solve on every Champagne solve)
-        self._init_gamma = []
-        self._init_sigma_b = []
-        for y, _ in data:
-            t = y.shape[1]
-            gamma, data_cov = self.forward.mne_initializer(y * (t ** 0.5))
-            gamma = np.reshape(gamma, (-1, self.forward.dc))
-            self._init_gamma.append([np.diag(g) for g in gamma])
-            self._init_sigma_b.append(self.forward.whitened_noise_covariance + data_cov)
+        self._init_gamma, self._init_sigma_b = _mne_seeds(self.forward, data)
         # Working estimate. _solve() replaces Gamma[key] wholesale rather than
         # writing into it, so the seeds can be shared; Sigma_b is read by
         # _construct_f() before the first covariance update, hence the copy.
