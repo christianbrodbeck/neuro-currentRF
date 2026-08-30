@@ -157,6 +157,22 @@ def _whiten_by_sigma_b(
         return [np.dot(Lc, array) for array in arrays], -np.log(e).sum() / 2
 
 
+def _residual_factor(
+        forward: ForwardModel,
+        theta: FloatArray,
+        meg: FloatArray,
+        covariates: FloatArray,
+) -> FloatArray:
+    """Low-rank factor of one segment's residual covariance.
+
+    The factor only ever enters through ``yhat @ yhat.T``, so any factor would
+    do; the rank-revealing one has the fewest columns, which pays off in the
+    per-source iterations of ``_solve()``.
+    """
+    y = meg - np.dot(np.dot(forward.whitened_lead_field, theta), covariates.T)
+    return _low_rank_sqrt(np.dot(y, y.T), y.shape[1])
+
+
 def _evaluate_objective(
         forward: ForwardModel,
         theta: FloatArray,
@@ -170,17 +186,7 @@ def _evaluate_objective(
     ll2 = 0
     logdet = 0
     for key, (meg, covariate) in enumerate(data):
-        y = meg - np.dot(np.dot(forward.whitened_lead_field, theta), covariate.T)
-        Cb = np.dot(y, y.T)  # empirical data covariance
-        # Any factor of Cb will do: yhat enters both here and in _solve() only
-        # through yhat @ yhat.T. Cholesky is the cheaper one for the single use
-        # here, whereas _solve() always takes the rank-revealing factor, whose
-        # fewer columns pay off across its per-source iterations.
-        try:
-            yhat = linalg.cholesky(Cb, lower=True)
-        except np.linalg.LinAlgError:
-            yhat = _low_rank_sqrt(Cb, y.shape[1])
-
+        yhat = _residual_factor(forward, theta, meg, covariate)
         (y,), logdet_ = _whiten_by_sigma_b(Sigma_b[key], yhat)
         ll2 += 0.5 * (y ** 2).sum()
         logdet += logdet_
@@ -284,9 +290,7 @@ class _ChampLassoState:
         logger.debug('trial \t time taken')
         for key, (meg, covariates) in enumerate(data):
             start = time.time()
-            y = meg - np.dot(np.dot(self.forward.whitened_lead_field, theta), covariates.T)
-            Cb = np.dot(y, y.T)  # empirical data covariance
-            yhat = _low_rank_sqrt(Cb, y.shape[1])
+            yhat = _residual_factor(self.forward, theta, meg, covariates)
 
             gamma = copy.deepcopy(self._init_gamma[key])
             sigma_b = self._init_sigma_b[key].copy()
