@@ -191,6 +191,19 @@ def _synthetic_data(
     return RegressionData.from_data(meg, stim, 0, tstop, scale=scale)
 
 
+def test_timeslice_boolean_mask():
+    data = _synthetic_data()
+    mask = np.zeros(data.meg[0].shape[1], dtype=bool)
+    mask[10:50] = True
+
+    by_mask = data.timeslice(mask)
+    by_index = data.timeslice(np.flatnonzero(mask))
+
+    np.testing.assert_array_equal(by_mask.meg[0], by_index.meg[0])
+    np.testing.assert_array_equal(by_mask.covariates[0], by_index.covariates[0])
+    assert by_mask.norm_factor == by_index.norm_factor
+
+
 def _forward(seed: int = 1) -> ForwardModel:
     """Forward model for the sensors of :func:`_synthetic_data`, with 4 sources."""
     rng = np.random.RandomState(seed)

@@ -551,7 +551,7 @@ class RegressionData:
         meg = [np.dot(whitening_filter, m) for m in self.meg]
         return replace(self, meg=meg, whitener=whitening_filter)
 
-    def timeslice(self, idx: Sequence[int] | IndexArray) -> RegressionData:
+    def timeslice(self, idx: Sequence[int] | IndexArray | npt.NDArray[np.bool_]) -> RegressionData:
         """Return a new dataset restricted to selected time indices.
 
         If this dataset ``.is_whitened``, the returned dataset is also
@@ -560,8 +560,12 @@ class RegressionData:
         Parameters
         ----------
         idx
-            Integer indices selecting the time samples to retain.
+            Time samples to retain, as integer indices or a boolean mask.
         """
+        idx = np.asarray(idx)
+        if idx.dtype == bool:
+            # a mask's len() is the full axis, not the number of retained samples
+            idx = np.flatnonzero(idx)
         mul = self.norm_factor / sqrt(len(idx))
         meg = [m[:, idx] * mul for m in self.meg]
         covariates = [c[idx, :] * mul for c in self.covariates]
