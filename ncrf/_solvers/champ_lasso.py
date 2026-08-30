@@ -41,6 +41,11 @@ if TYPE_CHECKING:
 #: Names from this tuple are what :attr:`ChampLasso.store` selects from.
 QUANTITIES = ('objective', 'residual', 'theta', 'gamma', 'sigma_b')
 
+#: Champagne iterations for the warm covariance solve at ``theta = 0``, used
+#: wherever a usable ``Sigma_b`` is needed before any FASTA step has run:
+#: the ``mu == 0`` branch of ``run()`` and the grid calibration in ``gradient()``.
+_N_ITERC_WARM = 30
+
 
 @dataclass(repr=False)
 class ChampLassoHistory:
@@ -346,7 +351,7 @@ class _ChampLassoState:
         mu = float(self.solver.mu)
         self._initialize(data)
         if mu == 0.0:
-            self._solve(data, self.theta, n_iterc=30)
+            self._solve(data, self.theta, n_iterc=_N_ITERC_WARM)
 
         if self.forward.space:
             def g_funct(x): return g_group(x, mu)
@@ -439,7 +444,7 @@ class _ChampLassoState:
         automatic regularization grid. Independent of ``mu``.
         """
         self._initialize(data)
-        self._solve(data, self.theta, n_iterc=30)
+        self._solve(data, self.theta, n_iterc=_N_ITERC_WARM)
         _, grad_funct = self._construct_f(data)
         x = grad_funct(self.theta)
         if self.forward.space:
