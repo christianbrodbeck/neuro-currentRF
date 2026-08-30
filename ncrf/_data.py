@@ -18,6 +18,7 @@ import numpy.typing as npt
 from scipy import linalg
 
 from ._trf_design import TRFDesign, stim_dimensions
+from ._pickle import pickle_state
 from ._repr import _count_repr
 from ._typing import FloatArray, IndexArray, ScaleArg, TrialData
 
@@ -430,7 +431,7 @@ class RegressionData:
         return f"<{type(self).__name__}: {_count_repr(n_segments, 'segment')}, {_count_repr(n_sensors, 'sensor')}, {_count_repr(n_samples, 'sample')}/segment, {_count_repr(n_covariates, 'covariate')}, {predictors=}, {whitened=}>"
 
     def __getstate__(self) -> dict[str, Any]:
-        return {key: value for key, value in self.__dict__.items() if key not in ('bbt', 'bE', 'EtE')}
+        return pickle_state(self)
 
     @cached_property
     def bbt(self) -> list[FloatArray]:

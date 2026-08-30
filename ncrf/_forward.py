@@ -13,6 +13,7 @@ from scipy import linalg
 
 from ._initialization import MNEInitializer
 from ._linalg import _inv_sqrtm
+from ._pickle import pickle_state
 from ._repr import _forward_summary
 from ._typing import FloatArray, NoiseArg
 
@@ -267,13 +268,7 @@ class ForwardModel:
 
     def __getstate__(self) -> dict[str, Any]:
         # Derived (whitened) quantities are recomputed by _prewhiten() on unpickling.
-        return {
-            'lead_field': self.lead_field,
-            'noise_covariance': self.noise_covariance,
-            'source': self.source,
-            'sensor': self.sensor,
-            'space': self.space,
-        }
+        return pickle_state(self)
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         self.__dict__.update(state)

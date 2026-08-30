@@ -23,6 +23,7 @@ from ._data import RegressionData
 from ._trf_design import TRFDesign
 from ._forward import ForwardModel, _assert_sensors_equal
 from ._metrics import Metric, explained_variance, l2_error, merge_scores
+from ._pickle import pickle_state
 from ._repr import _count_repr, _forward_summary
 from ._solvers import Solver, SolverFit
 from ._typing import FloatArray, NoiseArg
@@ -71,7 +72,7 @@ class NCRF:
         return f"<{type(self).__name__}: {_forward_summary(self.forward)}, {_count_repr(n_atoms, 'basis coefficient')}, {predictors=}>"
 
     def __getstate__(self) -> dict[str, Any]:
-        return {key: value for key, value in self.__dict__.items() if key not in ('h', 'h_scaled')}
+        return pickle_state(self)
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         # Models pickled before 0.5 have an entirely different attribute layout, but
