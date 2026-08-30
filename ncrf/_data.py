@@ -412,12 +412,14 @@ class RegressionData:
         data = cls(meg_arrays, covariate_arrays, norm_factor, design, sensor_dim)
 
         if scale is not None:
+            # the covariate arrays were constructed above and are not shared, so
+            # normalization can modify them without copying
             baseline, stim_scaling = get_scaling(stim, design, scale)
             if stim_scaling is None:
                 # 'spectral': measured on the centered covariates, so center first
-                data = data.normalize(replace(design, stim_baseline=baseline))
+                data = data.normalize(replace(design, stim_baseline=baseline), copy=False)
                 design, stim_scaling = data.design, data._spectral_norms()
-            data = data.normalize(replace(design, stim_baseline=baseline, stim_scaling=stim_scaling, scale=scale))
+            data = data.normalize(replace(design, stim_baseline=baseline, stim_scaling=stim_scaling, scale=scale), copy=False)
         return data
 
     def __iter__(self) -> Iterator[TrialData]:
@@ -461,7 +463,7 @@ class RegressionData:
         norms = [[linalg.norm(block, 2) for block in np.split(cov, splits, axis=1)] for cov in self.covariates]
         return np.array(norms).mean(axis=0)
 
-    def normalize(self, design: TRFDesign) -> RegressionData:
+    def normalize(self, design: TRFDesign, copy: bool = True) -> RegressionData:
         """Return a dataset carrying the centering and scaling recorded in ``design``.
 
         Normalization is a linear operation on the covariates, so for rows with a
@@ -481,13 +483,17 @@ class RegressionData:
             Design specifying the normalization to apply; it must describe the same
             coefficient space as this dataset's design. Steps this dataset already
             carries are skipped, so normalizing twice is a no-op.
+        copy
+            Copy the covariates before modifying them (default). ``False`` is
+            reserved for covariate arrays no other dataset shares, such as the
+            ones :meth:`from_data` has just constructed.
 
         Notes
         -----
-        The covariates are never modified in place. :meth:`whiten` hands out a
-        dataset that shares covariate arrays with this one, and writing through
-        them would leave the other dataset carrying a normalization that its own
-        ``design`` does not record.
+        By default the covariates are never modified in place. :meth:`whiten`
+        hands out a dataset that shares covariate arrays with this one, and
+        writing through them would leave the other dataset carrying a
+        normalization that its own ``design`` does not record.
 
         Raises
         ------
@@ -501,7 +507,7 @@ class RegressionData:
         if baseline is None and scaling is None:
             return replace(self, design=design)
 
-        covariates = [cov.copy() for cov in self.covariates]
+        covariates = [cov.copy() for cov in self.covariates] if copy else list(self.covariates)
         if baseline is not None:
             # For a row with a full lag window, subtracting a constant from the
             # stimulus offsets each covariate column by a constant. The offset is
