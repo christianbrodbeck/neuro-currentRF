@@ -139,7 +139,7 @@ def _score_candidate(
         model, solver_fit = estimator.fit_model(traindata, fold_solver)
         models.append(model)
         fold_scores.append(merge_scores(
-            model.evaluate(testdata, accept_whitening=True),
+            model.evaluate(testdata),
             solver_fit.score(estimator.forward, testdata),
         ))
 

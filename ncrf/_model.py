@@ -146,8 +146,6 @@ class NCRF:
             self,
             data: RegressionData,
             metrics: Sequence[Metric] = (explained_variance, l2_error),
-            *,
-            accept_whitening: bool = False,
     ) -> dict[str, float]:
         """Score predictions on ``data`` with one or more metrics.
 
@@ -166,29 +164,20 @@ class NCRF:
             Metric functions such as :func:`~ncrf.explained_variance`, each
             mapping observed and predicted per-segment arrays to a scalar.
             Results are keyed by function name.
-        accept_whitening
-            Set to ``True`` only when the model's whitening filter was already
-            applied to ``data``.
         """
-        data = self.forward.whiten(data, accept_whitening)
+        data = self.forward.whiten(data)
         self._theta_for(data)
         observed = [meg for meg, _ in data]
         predicted = [self._predict_whitened(covariate) for _, covariate in data]
         return {metric.__name__: metric(observed, predicted) for metric in metrics}
 
-    def voxelwise_explained_variance(
-            self,
-            data: RegressionData,
-            *,
-            accept_whitening: bool = False,
-    ) -> NDVar:
+    def voxelwise_explained_variance(self, data: RegressionData) -> NDVar:
         """Compute each source's contribution to explained variance.
 
         ``data`` has to carry the same normalization as the training data (see
-        :meth:`predict`). Set ``accept_whitening=True`` only when the model's
-        whitening filter was applied to ``data``.
+        :meth:`predict`).
         """
-        data = self.forward.whiten(data, accept_whitening)
+        data = self.forward.whiten(data)
         theta = self._theta_for(data)
         W_leadfield = self.forward.whitened_lead_field
         temp = np.zeros(len(self.forward.source))
@@ -358,7 +347,6 @@ class NCRFEstimator:
             cv: CrossValidation | None = None,
             verbose: bool = False,
             compute_explained_variance: bool = False,
-            accept_whitening: bool = False,
     ) -> NCRFFit:
         """Fit a configured solver to prepared regression data.
 
@@ -380,9 +368,6 @@ class NCRFEstimator:
         compute_explained_variance
             Compute the source-wise explained-variance diagnostic and store it
             on the result.
-        accept_whitening
-            Accept pre-whitened data. This is intended for internal workflows
-            that slice an already-whitened dataset, such as cross-validation.
 
         Returns
         -------
@@ -393,17 +378,17 @@ class NCRFEstimator:
         if list(data.sensor_dim.names) != list(self.forward.sensor.names):
             # rebind rather than recurse, so no future parameter can be lost in a replayed call
             self = replace(self, forward=self.forward.sub(data.sensor_dim))
-        data = self.forward.whiten(data, accept_whitening)
+        data = self.forward.whiten(data)
         if cv is None:
             cv = CrossValidation()
         solver, cv_results = solver.search(self, data, cv)
         model, solver_fit = self.fit_model(data, solver, verbose)
         scores = merge_scores(
-            model.evaluate(data, accept_whitening=True),
+            model.evaluate(data),
             solver_fit.score(self.forward, data),
         )
         if compute_explained_variance:
-            voxelwise = model.voxelwise_explained_variance(data, accept_whitening=True)
+            voxelwise = model.voxelwise_explained_variance(data)
         else:
             voxelwise = None
 

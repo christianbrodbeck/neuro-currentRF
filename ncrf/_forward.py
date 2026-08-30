@@ -225,30 +225,24 @@ class ForwardModel:
         dc = self.dc
         return slice(i * dc, (i + 1) * dc)
 
-    def whiten(
-            self,
-            data: RegressionData,
-            accept_whitening: bool = False,
-    ) -> RegressionData:
+    def whiten(self, data: RegressionData) -> RegressionData:
         """Whiten ``data`` with :attr:`~ncrf.ForwardModel.whitening_filter`, after checking sensor alignment.
 
         Parameters
         ----------
         data
             Dataset to whiten; it has to have exactly this forward model's sensors,
-            in the same order.
-        accept_whitening
-            Return an already-whitened dataset unchanged (see
-            :meth:`RegressionData.whiten`).
+            in the same order. Data already whitened with this model's filter is
+            returned unchanged.
 
         Raises
         ------
         ValueError
-            If ``data`` has different sensors than the forward model, or is
-            already whitened and ``accept_whitening`` is false.
+            If ``data`` has different sensors than the forward model, or was
+            whitened with a different filter (see :meth:`RegressionData.whiten`).
         """
         _assert_sensors_equal(data.sensor_dim.names, self.sensor.names, 'data', 'forward model')
-        return data.whiten(self.whitening_filter, accept_whitening=accept_whitening)
+        return data.whiten(self.whitening_filter)
 
     def _prewhiten(self) -> None:
         """Compute whitened derived quantities from ``lead_field`` and ``noise_covariance``.

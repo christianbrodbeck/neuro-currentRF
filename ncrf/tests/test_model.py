@@ -141,18 +141,21 @@ def test_merge_scores_rejects_shadowing():
 
 def test_whitening_guard():
     data = RegressionData.__new__(RegressionData)
-    data.is_whitened = True
+    whitening_filter = np.eye(3) * 2
+    data.whitener = whitening_filter
     data.sensor_dim = SENSOR
-    whitening_filter = object()
 
-    with pytest.raises(ValueError, match="pass accept_whitening=True"):
-        data.whiten(whitening_filter)
-    assert data.whiten(whitening_filter, accept_whitening=True) is data
+    # the same filter is a no-op, a different filter an error
+    assert data.whiten(whitening_filter) is data
+    assert data.whiten(whitening_filter.copy()) is data
+    with pytest.raises(ValueError, match="whitened with a different filter"):
+        data.whiten(whitening_filter * 2)
 
     forward = _forward()
-    with pytest.raises(ValueError, match="pass accept_whitening=True"):
+    with pytest.raises(ValueError, match="whitened with a different filter"):
         forward.whiten(data)
-    assert forward.whiten(data, accept_whitening=True) is data
+    data.whitener = forward.whitening_filter
+    assert forward.whiten(data) is data
 
 
 def _synthetic_data(

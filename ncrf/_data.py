@@ -255,8 +255,10 @@ class RegressionData:
         which is what lets a model fitted on one dataset predict another.
     sensor_dim
         Sensor dimension shared by all MEG segments.
-    is_whitened
-        Whether ``meg`` has already been transformed by a whitening filter.
+    whitener
+        The whitening filter that was applied to ``meg``, or ``None`` for raw
+        data. Recording the filter itself lets :meth:`whiten` distinguish a
+        no-op (same filter) from an error (different filter).
     """
 
     meg: list[FloatArray]  # (sensor, time)
@@ -264,7 +266,12 @@ class RegressionData:
     norm_factor: float
     design: TRFDesign
     sensor_dim: Sensor
-    is_whitened: bool = False
+    whitener: FloatArray | None = None
+
+    @property
+    def is_whitened(self) -> bool:
+        """Whether ``meg`` has been transformed by a whitening filter (see ``whitener``)."""
+        return self.whitener is not None
 
     def __post_init__(self) -> None:
         if len({m.shape[1] for m in self.meg}) > 1:
@@ -510,39 +517,33 @@ class RegressionData:
                 cov /= factors
         return replace(self, covariates=covariates, design=design)
 
-    def whiten(
-            self,
-            whitening_filter: FloatArray,
-            accept_whitening: bool = False,
-    ) -> RegressionData:
+    def whiten(self, whitening_filter: FloatArray) -> RegressionData:
         """Return a dataset with MEG whitened.
 
         Parameters
         ----------
         whitening_filter
-            Whitening matrix.
-        accept_whitening
-            Return an already-whitened dataset unchanged. The caller is
-            responsible for ensuring that the right whitening filter was applied.
+            Whitening matrix. If the dataset was already whitened with this same
+            filter, it is returned unchanged.
 
         Notes
         -----
-        Uses shallow copies of unmodified data. If ``accept_whitening`` is true
-        and the data is already whitened, returns this dataset unchanged.
+        Uses shallow copies of unmodified data.
 
         Raises
         ------
         ValueError
-            If the dataset is already whitened and ``accept_whitening`` is false.
-            Whitening twice is not equivalent to whitening once with the second
-            filter (``W₂ @ W₁ @ meg ≠ W₂ @ meg``).
+            If the dataset is already whitened with a different filter: its
+            sensor space is not the one this filter belongs to, and whitening
+            twice is not equivalent to whitening once with the second filter
+            (``W₂ @ W₁ @ meg ≠ W₂ @ meg``).
         """
-        if self.is_whitened:
-            if accept_whitening:
+        if self.whitener is not None:
+            if self.whitener is whitening_filter or (self.whitener.shape == whitening_filter.shape and np.allclose(self.whitener, whitening_filter)):
                 return self
-            raise ValueError("data is already whitened; pass accept_whitening=True to accept it")
+            raise ValueError("data is already whitened with a different filter, so it belongs to a different (forward model's) sensor space; rebuild the dataset from raw data")
         meg = [np.dot(whitening_filter, m) for m in self.meg]
-        return replace(self, meg=meg, is_whitened=True)
+        return replace(self, meg=meg, whitener=whitening_filter)
 
     def timeslice(self, idx: Sequence[int] | IndexArray) -> RegressionData:
         """Return a new dataset restricted to selected time indices.

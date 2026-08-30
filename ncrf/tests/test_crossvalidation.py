@@ -97,7 +97,7 @@ def test_score_candidate_uses_estimator_fit_primitive(monkeypatch):
     assert fold_solver.tol == solver.tol
     assert not fold_solver.store
     estimator.fit_model.assert_called_once_with(train_data, fold_solver)
-    model.evaluate.assert_called_once_with(test_data, accept_whitening=True)
+    model.evaluate.assert_called_once_with(test_data)
     solver_fit.score.assert_called_once_with(estimator.forward, test_data)
     assert result.solver is solver
     assert result.scores == {
