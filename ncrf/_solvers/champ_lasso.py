@@ -363,10 +363,14 @@ class _ChampLassoState:
         else:
             iter_o = range(self.solver.n_iter)
 
+        # The objective is expensive to evaluate, so skip it when it would only
+        # be discarded (e.g. cross-validation folds, which use store=())
+        debug = logger.isEnabledFor(logging.DEBUG)
         logger.debug('process:iteration \t objective value \t %% change')
         for i in iter_o:
             funct, grad_funct = self._construct_f(data)
-            logger.debug(f"Before FASTA:{funct(self.theta)}")
+            if debug:
+                logger.debug(f"Before FASTA:{funct(self.theta)}")
             Theta = Fasta(funct, g_funct, grad_funct, prox_g, n_iter=self.solver.n_iterf)
             Theta.learn(theta)
 
@@ -374,15 +378,18 @@ class _ChampLassoState:
             theta = Theta.coefs_
             self.theta = theta
             history.record(residual=residual, theta=theta)
-            logger.debug(f"After FASTA: {funct(self.theta)}")
+            if debug:
+                logger.debug(f"After FASTA: {funct(self.theta)}")
 
             if residual < self.solver.tol:
                 break
 
             self._solve(data, theta)
-            objective, _ = _evaluate_objective(self.forward, self.theta, self.Sigma_b, data)
-            history.record(objective=objective, gamma=self.Gamma, sigma_b=self.Sigma_b)
-            logger.debug(f'{myname}:{i} \t {objective} \t {residual * 100}')
+            if debug or 'objective' in history.store:
+                objective, _ = _evaluate_objective(self.forward, self.theta, self.Sigma_b, data)
+                history.record(objective=objective)
+                logger.debug(f'{myname}:{i} \t {objective} \t {residual * 100}')
+            history.record(gamma=self.Gamma, sigma_b=self.Sigma_b)
 
     def _construct_f(self, data: RegressionData) -> tuple[ObjectiveFunction, GradientFunction]:
         """Build the smooth objective and gradient passed to FASTA.
