@@ -391,8 +391,8 @@ class NCRFEstimator:
             optional cross-validation and source-wise diagnostics.
         """
         if list(data.sensor_dim.names) != list(self.forward.sensor.names):
-            estimator = replace(self, forward=self.forward.sub(data.sensor_dim))
-            return estimator.fit(data, solver, cv=cv, verbose=verbose, compute_explained_variance=compute_explained_variance, accept_whitening=accept_whitening)
+            # rebind rather than recurse, so no future parameter can be lost in a replayed call
+            self = replace(self, forward=self.forward.sub(data.sensor_dim))
         data = self.forward.whiten(data, accept_whitening)
         if cv is None:
             cv = CrossValidation()
