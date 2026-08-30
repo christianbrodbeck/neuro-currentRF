@@ -95,9 +95,14 @@ class NCRF:
         design.normalization_to(self.design, assert_applied=True)
         return self.theta
 
-    def _predict_whitened(self, theta: FloatArray, covariate: FloatArray) -> FloatArray:
+    @cached_property
+    def _whitened_projection(self) -> FloatArray:
+        """``whitened_lead_field @ theta``, the segment-independent part of whitened prediction."""
+        return np.dot(self.forward.whitened_lead_field, self.theta)
+
+    def _predict_whitened(self, covariate: FloatArray) -> FloatArray:
         """Predicted whitened sensor data for one trial's covariate matrix."""
-        return np.dot(np.dot(self.forward.whitened_lead_field, theta), covariate.T)
+        return np.dot(self._whitened_projection, covariate.T)
 
     def predict(
             self,
@@ -130,7 +135,7 @@ class NCRF:
         _assert_sensors_equal(data.sensor_dim.names, self.forward.sensor.names, 'data', 'forward model')
         theta = self._theta_for(data)
         if whitened:
-            return [self._predict_whitened(theta, covariate) for covariate in data.covariates]
+            return [self._predict_whitened(covariate) for covariate in data.covariates]
         # Predicting through the un-whitened lead field, and undoing the sqrt(n_times)
         # by which both MEG and covariates were divided, puts the prediction back into
         # the units of the M/EEG data the dataset was built from.
@@ -166,9 +171,9 @@ class NCRF:
             applied to ``data``.
         """
         data = self.forward.whiten(data, accept_whitening)
-        theta = self._theta_for(data)
+        self._theta_for(data)
         observed = [meg for meg, _ in data]
-        predicted = [self._predict_whitened(theta, covariate) for _, covariate in data]
+        predicted = [self._predict_whitened(covariate) for _, covariate in data]
         return {metric.__name__: metric(observed, predicted) for metric in metrics}
 
     def voxelwise_explained_variance(
@@ -189,7 +194,7 @@ class NCRF:
         temp = np.zeros(len(self.forward.source))
         for meg, covariate in data:
             total_var = np.var(meg, axis=1)
-            y_full = meg - self._predict_whitened(theta, covariate)
+            y_full = meg - self._predict_whitened(covariate)
             base_var = np.var(y_full, axis=1)
             for i in range(len(self.forward.source)):
                 # Zeroing source i's weights just removes its (linear) contribution
