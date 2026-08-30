@@ -29,6 +29,11 @@ from ._solvers import Solver, SolverFit
 from ._typing import FloatArray, NoiseArg
 
 
+#: Layout of the NCRF pickle state; bump on incompatible attribute changes.
+#: Pre-0.5 pickles carry no stamp and load as version 0.
+_PICKLE_VERSION = 1
+
+
 class NCRF:
     """Fitted NCRF model that can be applied to compatible datasets.
 
@@ -72,13 +77,14 @@ class NCRF:
         return f"<{type(self).__name__}: {_forward_summary(self.forward)}, {_count_repr(n_atoms, 'basis coefficient')}, {predictors=}>"
 
     def __getstate__(self) -> dict[str, Any]:
-        return pickle_state(self)
+        return {**pickle_state(self), 'version': _PICKLE_VERSION}
 
     def __setstate__(self, state: dict[str, Any]) -> None:
-        # Models pickled before 0.5 have an entirely different attribute layout, but
-        # the same class path, so they would unpickle into an unusable object here.
-        if 'design' not in state:
-            raise RuntimeError("this model was pickled with ncrf < 0.5, whose layout is incompatible with the current one; re-fit it with the current version")
+        # A model pickled with a different attribute layout would unpickle into
+        # an unusable object here, since the class path stays the same.
+        version = state.pop('version', 0)
+        if version != _PICKLE_VERSION:
+            raise RuntimeError(f"this model was pickled with an incompatible ncrf version (pickle layout {version}, expected {_PICKLE_VERSION}); re-fit it with the current version")
         self.__dict__.update(state)
 
     def _theta_for(self, data: RegressionData) -> FloatArray:
