@@ -376,7 +376,6 @@ class NCRFEstimator:
             optional cross-validation and source-wise diagnostics.
         """
         if list(data.sensor_dim.names) != list(self.forward.sensor.names):
-            # rebind rather than recurse, so no future parameter can be lost in a replayed call
             self = replace(self, forward=self.forward.sub(data.sensor_dim))
         data = self.forward.whiten(data)
         if cv is None:
