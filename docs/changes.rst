@@ -87,6 +87,18 @@ Attributes of the old fitted model map onto the fit report as follows:
 Because the fitted object was restructured, models pickled with earlier versions
 can no longer be loaded.
 
+Sensor handling
+"""""""""""""""
+
+Channels are now matched strictly by name, and the three channel sets must be
+nested: lead field ⊇ noise covariance ⊇ data. The estimator stores the lead
+field and noise covariance in full and derives the whitened forward model for
+exactly the data's channels when fitting; a data channel missing from the
+noise covariance or the lead field, or a noise channel without a lead field,
+is an error naming the offending input. Because channel identity is required
+for this matching, ``noise`` must be an :class:`mne.Covariance` or an
+:class:`eelbrain.NDVar`; a plain :class:`numpy.ndarray` is no longer accepted.
+
 Applying a model to new data
 """"""""""""""""""""""""""""
 

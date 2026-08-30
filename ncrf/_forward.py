@@ -136,51 +136,6 @@ class ForwardModel:
     def __repr__(self) -> str:
         return f'<{type(self).__name__}: {_forward_summary(self)}>'
 
-    @classmethod
-    def from_lead_field(cls, lead_field: NDVar, noise_covariance: NoiseArg) -> ForwardModel:
-        """Construct from an Eelbrain lead-field :class:`~eelbrain.NDVar`.
-
-        Parameters
-        ----------
-        lead_field
-            Forward solution with ``sensor`` and ``source`` dimensions and an
-            optional ``space`` dimension for free orientation.
-        noise_covariance
-            Noise covariance as :class:`mne.Covariance`, or as
-            :class:`eelbrain.NDVar` data from which a covariance is estimated
-            (see :class:`~ncrf.NCRFEstimator`). Channels are matched to the lead
-            field by name: the noise channels must be a subset of the lead
-            field's channels, and the lead field is trimmed to the channels the
-            noise covers.
-
-        Raises
-        ------
-        ValueError
-            If the noise has channels that are not in the lead field. Whitening
-            requires a noise estimate for every fitted channel, so noise for a
-            channel without a lead field is a sign of misaligned inputs.
-        """
-        noise_cov, noise_names = _noise_covariance(noise_covariance)
-        sensor_names = list(lead_field.get_dim('sensor').names)
-        extra = [name for name in noise_names if name not in sensor_names]
-        if extra:
-            raise ValueError(f"noise covariance channels missing from the lead field: {extra}; the noise sensors must be a subset of the lead field's sensors")
-        keep = [name for name in sensor_names if name in noise_names]
-        if keep != sensor_names:
-            lead_field = lead_field.sub(sensor=keep)
-        if keep != noise_names:
-            index = np.array([noise_names.index(name) for name in keep])
-            noise_cov = noise_cov[np.ix_(index, index)]
-        if lead_field.has_dim('space'):
-            g = lead_field.get_data(dims=('sensor', 'source', 'space')).astype(np.float64)
-            g = g.reshape(g.shape[0], -1)
-            space = lead_field.get_dim('space')
-        else:
-            g = lead_field.get_data(dims=('sensor', 'source')).astype(np.float64)
-            space = None
-        sensor = lead_field.get_dim('sensor')
-        return cls(g, noise_cov.astype(np.float64), lead_field.get_dim('source'), sensor, space)
-
     @property
     def dc(self) -> int:
         """Number of orientation components per source."""
@@ -190,35 +145,6 @@ class ForwardModel:
     def mne_initializer(self) -> MNEInitializer:
         """MNE-style initializer for :attr:`~ncrf.ForwardModel.whitened_lead_field`."""
         return MNEInitializer(self.whitened_lead_field)
-
-    def sub(self, sensor: Sensor) -> ForwardModel:
-        """Forward model restricted to a subset of its sensors, in their order.
-
-        The whitened quantities are recomputed for the subset: whitening is not
-        separable per channel, so they cannot be obtained by slicing the full
-        model's derived arrays.
-
-        Parameters
-        ----------
-        sensor
-            Sensors to keep, matched by name; they must all be present in
-            :attr:`~ncrf.ForwardModel.sensor`. Returns ``self`` when they are
-            already exactly this model's sensors.
-
-        Raises
-        ------
-        ValueError
-            If ``sensor`` contains channels this forward model does not cover.
-        """
-        names = list(sensor.names)
-        self_names = list(self.sensor.names)
-        if names == self_names:
-            return self
-        extra = [name for name in names if name not in set(self_names)]
-        if extra:
-            raise ValueError(f"channels not covered by the forward model: {extra}; the sensors must be a subset of the forward model's sensors")
-        index = np.array([self_names.index(name) for name in names])
-        return ForwardModel(self.lead_field[index], self.noise_covariance[np.ix_(index, index)], self.source, sensor, self.space)
 
     def source_block(self, i: int) -> slice:
         """Column/row slice of source ``i``'s orientation components in stacked arrays."""

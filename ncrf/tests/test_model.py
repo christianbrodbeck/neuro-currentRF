@@ -364,8 +364,8 @@ def test_rejects_sensor_mismatch():
     with pytest.raises(ValueError, match=r"only in data: \['z'\]; only in forward model: \['c'\]"):
         model.predict(renamed)
 
-    estimator = NCRFEstimator(model.forward)
-    with pytest.raises(ValueError, match=r"channels not covered by the forward model: \['z'\]"):
+    estimator = NCRFEstimator(forward=model.forward)
+    with pytest.raises(ValueError, match="no lead field to derive a matching one from"):
         estimator.fit(renamed, _ZeroSolver())
 
 
@@ -378,31 +378,35 @@ def test_estimator_noise_forms():
     data = a.dot(a.T)
 
     covariance = mne.Covariance(data, names, [], [], 0)
-    np.testing.assert_array_equal(NCRFEstimator.from_lead_field(lead_field, covariance).forward.noise_covariance, data)
+    np.testing.assert_array_equal(NCRFEstimator.from_lead_field(lead_field, covariance).noise_covariance, data)
 
     # a diagonal covariance is expanded to a full matrix
     variance = np.diag(data).copy()
     diagonal = mne.Covariance(variance, names, [], [], 0)
-    np.testing.assert_array_equal(NCRFEstimator.from_lead_field(lead_field, diagonal).forward.noise_covariance, np.diag(variance))
+    np.testing.assert_array_equal(NCRFEstimator.from_lead_field(lead_field, diagonal).noise_covariance, np.diag(variance))
 
     # empty-room data is reduced to its covariance
     empty_room = NDVar(rng.normal(size=(3, 500)), (SENSOR, UTS(0, 0.01, 500)))
     x = empty_room.get_data(('sensor', 'time'))
-    np.testing.assert_allclose(NCRFEstimator.from_lead_field(lead_field, empty_room).forward.noise_covariance, x.dot(x.T) / x.shape[1])
+    np.testing.assert_allclose(NCRFEstimator.from_lead_field(lead_field, empty_room).noise_covariance, x.dot(x.T) / x.shape[1])
 
-    # channels are matched by name, so a different channel order is aligned silently
+    # the covariance is stored as given; channel order is aligned when the forward model is derived
     reverse = np.ix_([2, 1, 0], [2, 1, 0])
     reversed_covariance = mne.Covariance(data[reverse], names[::-1], [], [], 0)
-    np.testing.assert_array_equal(NCRFEstimator.from_lead_field(lead_field, reversed_covariance).forward.noise_covariance, data)
+    estimator = NCRFEstimator.from_lead_field(lead_field, reversed_covariance)
+    assert list(estimator.noise_channels) == names[::-1]
+    np.testing.assert_array_equal(estimator.noise_covariance, data[reverse])
+    np.testing.assert_array_equal(estimator._forward_for(SENSOR).noise_covariance, data)
     reordered_room = NDVar(x[::-1], (Sensor([[0., 0, 1], [0, 1, 0], [1, 0, 0]], names[::-1]), UTS(0, 0.01, 500)))
-    np.testing.assert_allclose(NCRFEstimator.from_lead_field(lead_field, reordered_room).forward.noise_covariance, x.dot(x.T) / x.shape[1])
+    np.testing.assert_allclose(NCRFEstimator.from_lead_field(lead_field, reordered_room)._forward_for(SENSOR).noise_covariance, x.dot(x.T) / x.shape[1])
 
-    # noise for a subset of the lead field's channels trims the lead field,
-    # while the full forward solution is retained
+    # noise for a subset of the lead field's channels is stored as is;
+    # the full forward solution is retained
     estimator = NCRFEstimator.from_lead_field(lead_field, mne.Covariance(data[:2, :2], names[:2], [], [], 0))
-    assert list(estimator.forward.sensor.names) == names[:2]
-    np.testing.assert_array_equal(estimator.forward.lead_field, lead_field.x[:2])
-    np.testing.assert_array_equal(estimator.forward.noise_covariance, data[:2, :2])
+    assert list(estimator.noise_channels) == names[:2]
+    np.testing.assert_array_equal(estimator.noise_covariance, data[:2, :2])
+    assert estimator.lead_field is lead_field
+    assert estimator.forward is None
 
 
 def test_estimator_rejects_invalid_noise():
@@ -438,25 +442,32 @@ def test_fit_trims_forward_to_data():
 
     result = estimator.fit(data, _ShapedZeroSolver())
 
-    # the model's forward is trimmed to the data's channels, in the data's order
+    # the model's forward is derived for the data's channels, in the data's order
     model = result.model
     assert list(model.forward.sensor.names) == ['c', 'a']
     np.testing.assert_array_equal(model.forward.lead_field, lead_field.x[[2, 0]])
     np.testing.assert_array_equal(model.forward.noise_covariance, noise.data[np.ix_([2, 0], [2, 0])])
-    # the estimator itself is unchanged, and the full forward solution is retained
-    assert list(estimator.forward.sensor.names) == names
+    # the estimator itself is unchanged
+    assert estimator.forward is None
 
-    # the sub-forward is identical to one built from the trimmed inputs directly
-    reference = NCRFEstimator.from_lead_field(lead_field.sub(sensor=['c', 'a']), mne.Covariance(noise.data[np.ix_([2, 0], [2, 0])], ['c', 'a'], [], [], 0)).forward
+    # the derived forward is identical to one built from the trimmed inputs directly
+    reference = NCRFEstimator.from_lead_field(lead_field.sub(sensor=['c', 'a']), mne.Covariance(noise.data[np.ix_([2, 0], [2, 0])], ['c', 'a'], [], [], 0))._forward_for(sensor_sub)
     np.testing.assert_array_equal(model.forward.whitening_filter, reference.whitening_filter)
     np.testing.assert_array_equal(model.forward.whitened_lead_field, reference.whitened_lead_field)
 
-    # data with channels the forward model does not cover is an error
+    # data with channels the lead field does not cover is an error naming the lead field
     sensor_extra = Sensor([[1., 0, 0], [0, 0.5, 0.5]], ['a', 'z'])
     meg_extra = [NDVar(rng.normal(size=(2, 200)), (sensor_extra, time))]
     data_extra = RegressionData.from_data(meg_extra, stim, 0, 0.05, scale=None, stim_is_single=True)
-    with pytest.raises(ValueError, match=r"channels not covered by the forward model: \['z'\]"):
+    with pytest.raises(ValueError, match=r"data channels missing from the lead field: \['z'\]"):
         estimator.fit(data_extra, _ShapedZeroSolver())
+
+    # a channel with a lead field but no noise estimate blames the noise covariance
+    estimator_sub = NCRFEstimator.from_lead_field(lead_field, mne.Covariance(noise.data[:2, :2], names[:2], [], [], 0))
+    meg_full = [NDVar(rng.normal(size=(3, 200)), (SENSOR, time))]
+    data_full = RegressionData.from_data(meg_full, stim, 0, 0.05, scale=None, stim_is_single=True)
+    with pytest.raises(ValueError, match=r"data channels missing from the noise covariance: \['c'\]"):
+        estimator_sub.fit(data_full, _ShapedZeroSolver())
 
 
 def test_h_scaled():

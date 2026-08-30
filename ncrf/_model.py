@@ -15,13 +15,13 @@ from functools import cached_property
 from typing import Any
 from collections.abc import Sequence
 
-from eelbrain import NDVar, UTS, fmtxt
+from eelbrain import NDVar, Sensor, UTS, fmtxt
 import numpy as np
 
 from ._crossvalidation import CrossValidation, CVResult
 from ._data import RegressionData
 from ._trf_design import TRFDesign
-from ._forward import ForwardModel, _assert_sensors_equal
+from ._forward import ForwardModel, _assert_sensors_equal, _noise_covariance
 from ._metrics import Metric, explained_variance, l2_error, merge_scores
 from ._pickle import pickle_state
 from ._repr import _count_repr, _forward_summary
@@ -263,11 +263,25 @@ class NCRFEstimator:
     covariance, then call :meth:`fit` with a :class:`RegressionData` instance
     to obtain an :class:`NCRFFit`.
 
+    The estimator stores its inputs in full; the whitened
+    :class:`~ncrf.ForwardModel` is derived by :meth:`fit` for exactly the
+    channels of the data being fit, since whitening is not separable per
+    channel.
+
     Parameters
     ----------
+    lead_field
+        Full forward solution with ``sensor`` and ``source`` dimensions and an
+        optional ``space`` dimension for free orientation.
+    noise_covariance
+        Sensor-space noise covariance for :attr:`noise_channels`, in their order.
+    noise_channels
+        Channel names of ``noise_covariance``, in its order: a subset of the
+        lead field's channels. Alignment to the data's channels happens by name
+        when the forward model is derived.
     forward
-        The forward-model state to fit with (lead field, whitening filter, and
-        source, sensor, and orientation dimensions).
+        Whitened forward-model state for the channels of the data most recently
+        fit; ``None`` until :meth:`fit` derives it.
 
     Notes
     -----
@@ -278,10 +292,10 @@ class NCRFEstimator:
     fitted state.
     """
 
-    #: The internal forward-model state (lead field, whitening filter, and
-    #: source, sensor, and orientation dimensions), covering the lead-field
-    #: channels for which noise covariance is available.
-    forward: ForwardModel
+    lead_field: NDVar | None = None
+    noise_covariance: FloatArray | None = None
+    noise_channels: Sequence[str] | None = None
+    forward: ForwardModel | None = None
 
     @classmethod
     def from_lead_field(cls, lead_field: NDVar, noise_covariance: NoiseArg) -> NCRFEstimator:
@@ -300,11 +314,65 @@ class NCRFEstimator:
             be a subset of the lead field's channels (channels dropped from the
             noise, e.g. bad channels, are simply excluded from fitting), whereas
             noise for a channel without a lead field is an error.
+
+        Raises
+        ------
+        ValueError
+            If the noise has channels that are not in the lead field. Whitening
+            requires a noise estimate for every fitted channel, so noise for a
+            channel without a lead field is a sign of misaligned inputs.
         """
-        return cls(ForwardModel.from_lead_field(lead_field, noise_covariance))
+        noise_cov, noise_names = _noise_covariance(noise_covariance)
+        sensor_names = set(lead_field.get_dim('sensor').names)
+        extra = [name for name in noise_names if name not in sensor_names]
+        if extra:
+            raise ValueError(f"noise covariance channels missing from the lead field: {extra}; the noise sensors must be a subset of the lead field's sensors")
+        return cls(lead_field, noise_cov.astype(np.float64), noise_names)
+
+    def _forward_for(self, sensor: Sensor) -> ForwardModel:
+        """Whitened forward-model state for exactly ``sensor``'s channels.
+
+        Returns the already-derived :attr:`forward` when it covers these
+        channels in this order.
+
+        Raises
+        ------
+        ValueError
+            If a channel is missing from the lead field or the noise
+            covariance; fitting needs both for every data channel.
+        """
+        names = list(sensor.names)
+        if self.forward is not None and names == list(self.forward.sensor.names):
+            return self.forward
+        if self.lead_field is None:
+            raise ValueError(f"data channels {names} do not match the forward model, and the estimator has no lead field to derive a matching one from; construct it with from_lead_field()")
+        lead_field_names = self.lead_field.get_dim('sensor').names
+        missing = [name for name in names if name not in set(lead_field_names)]
+        if missing:
+            raise ValueError(f"data channels missing from the lead field: {missing}; fitting requires a forward solution for every data channel")
+        missing = [name for name in names if name not in set(self.noise_channels)]
+        if missing:
+            raise ValueError(f"data channels missing from the noise covariance: {missing}; whitening requires a noise estimate for every fitted channel (were they excluded from the noise estimate as bad channels?)")
+        lead_field = self.lead_field.sub(sensor=names)
+        noise_channels = list(self.noise_channels)
+        index = np.array([noise_channels.index(name) for name in names])
+        noise_cov = self.noise_covariance[np.ix_(index, index)]
+        if lead_field.has_dim('space'):
+            g = lead_field.get_data(dims=('sensor', 'source', 'space')).astype(np.float64)
+            g = g.reshape(g.shape[0], -1)
+            space = lead_field.get_dim('space')
+        else:
+            g = lead_field.get_data(dims=('sensor', 'source')).astype(np.float64)
+            space = None
+        return ForwardModel(g, noise_cov, lead_field.get_dim('source'), lead_field.get_dim('sensor'), space)
 
     def __repr__(self) -> str:
-        return f'<{type(self).__name__}: {_forward_summary(self.forward)}>'
+        if self.forward is not None:
+            return f'<{type(self).__name__}: {_forward_summary(self.forward)}>'
+        if self.lead_field is None:
+            return f'<{type(self).__name__}>'
+        orientation = 'free' if self.lead_field.has_dim('space') else 'fixed'
+        return f"<{type(self).__name__}: {_count_repr(len(self.lead_field.get_dim('source')), 'source')}, {_count_repr(len(self.lead_field.get_dim('sensor')), 'sensor')}, {orientation} orientation, {_count_repr(len(self.noise_channels), 'noise channel')}>"
 
     def fit_model(
             self,
@@ -334,6 +402,8 @@ class NCRFEstimator:
             the data by channel position and assumes isotropic noise, so either
             mismatch would silently produce wrong coefficients.
         """
+        if self.forward is None:
+            raise ValueError("estimator has no forward model yet; fit() derives it from the data's channels")
         _assert_sensors_equal(data.sensor_dim.names, self.forward.sensor.names, 'data', 'forward model')
         if not data.is_whitened:
             raise ValueError("data is not whitened; use NCRFEstimator.fit(), which whitens the data, or whiten it with self.forward.whiten(data)")
@@ -373,9 +443,9 @@ class NCRFEstimator:
         ----------
         data
             Prepared M/EEG data and corresponding basis-projected covariates. The
-            data is never modified to fit the forward model: channels the forward
-            model does not cover are an error, whereas a forward model covering
-            more channels is trimmed to the data (see :meth:`ForwardModel.sub`).
+            forward model is derived from the estimator's lead field and noise
+            covariance for exactly the data's channels; a data channel missing
+            from either is an error.
         solver
             Solver configuration. A solver with more than one configuration to
             choose from selects one through cross-validation before the final fit.
@@ -394,8 +464,9 @@ class NCRFEstimator:
             Fitted model, selected solver, solver state, training scores, and
             optional cross-validation and source-wise diagnostics.
         """
-        if list(data.sensor_dim.names) != list(self.forward.sensor.names):
-            self = replace(self, forward=self.forward.sub(data.sensor_dim))
+        forward = self._forward_for(data.sensor_dim)
+        if forward is not self.forward:
+            self = replace(self, forward=forward)
         data = self.forward.whiten(data)
         if cv is None:
             cv = CrossValidation()
